@@ -1,0 +1,17 @@
+# grip — pinned dependencies
+# Installed & verified on this machine (M1, 16GB, macOS):
+#   torch 2.12.1, MPS backend working end-to-end.
+# Do NOT upgrade torch past current stable without re-verifying MPS + mps-flash-attn.
+
+# Core
+torch==2.12.1
+numpy==2.5.0
+
+# Development
+pytest==9.1.1
+
+# --- Optional / stage-dependent (uncomment when adopted) ---
+# mps-flash-attn==0.6.1   # fused Metal attention; needed once seq >= 1024.
+                          # Verified to exist (PyPI 0.6.1) but NOT yet smoke-tested
+                          # against our mask shapes. Smoke-test before depending on it.
+# wandb                    # run logging; defer until training loop exists.

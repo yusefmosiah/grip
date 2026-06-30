@@ -1,3 +1,6 @@
+# Local venv (created via: uv venv --python 3.12 .venv)
+.venv/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -6,6 +9,7 @@ __pycache__/
 .Python
 *.egg-info/
 .eggs/
+src/*.egg-info/
 build/
 dist/
 .venv/
