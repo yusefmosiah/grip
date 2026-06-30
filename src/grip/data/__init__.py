@@ -13,3 +13,4 @@ The generator is where the synthetic-stream advantage is realized: these
 labels are free here and unobtainable in natural language.
 """
 from .streams import BayesianEvidenceStream, StreamSample  # noqa: F401
+from .collate import collate, make_batch  # noqa: F401
