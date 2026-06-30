@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.python-version
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Notebooks (keep deliberate ones out of root; ignore checkpoints)
+.ipynb_checkpoints/
+
+# Experiment outputs
+runs/
+reports/
+wandb/
+mlruns/
+outputs/
+logs/
+*.log
+
+# Data / model artifacts
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.npz
+*.npy
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets
+.env
+.env.*
+secrets.*
