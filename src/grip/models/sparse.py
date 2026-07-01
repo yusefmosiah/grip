@@ -9,11 +9,12 @@ IMPLEMENTATION ROUTE:
   Local training must use pure PyTorch gather/masks or SDPA. Do NOT use Triton.
   Do NOT assume FlexAttention trains on MPS: the research notes found the
   current PyTorch FlexAttention path raises for MPS backward when inputs require
-  gradients. Treat FlexAttention as CUDA/cloud-only unless a local smoke test
-  proves the exact training mask works.
+  gradients. Treat FlexAttention training as CUDA/cloud-only until upstream MPS
+  backward support changes.
 
-The grip-augmented variants (grip_read, grip_select) subclass this and change
-ONLY the selection scoring. See GLOSSARY.md: the intervention surface is
+The grip-augmented variants (grip_read, grip_select) share an explicit Grip
+state producer/update path. Their causal difference is ONLY whether that state
+enters selection scoring. See GLOSSARY.md: the intervention surface is
   importance_b = f(q, c_b) + lambda * h(query_grip, grip_b)
 with lambda=0 (variant A) vs lambda>0 (variant B).
 """
@@ -48,10 +49,10 @@ class ContentSparseTransformer(nn.Module):
         raise NotImplementedError(
             "CODEX: local-window attention over recent `window` tokens, plus "
             "top-K block selection over compressed block summaries. Start from "
-            "lucidrains/native-sparse-attention-pytorch structure but keep the "
-            "pure-PyTorch / FlexAttention path. selection scoring MUST be a "
-            "swappable method _block_importance() so grip variants can override "
-            "ONLY it. Add tests in tests/test_sparse.py."
+            "lucidrains/native-sparse-attention-pytorch structure but keep a "
+            "pure-PyTorch path. selection scoring MUST be a swappable method "
+            "_block_importance() so grip variants can share the state producer "
+            "and vary only lambda. Add tests in tests/test_sparse.py."
         )
 
     def _block_importance(self, query, block_summaries):

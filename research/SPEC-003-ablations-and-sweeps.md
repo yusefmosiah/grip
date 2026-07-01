@@ -41,6 +41,10 @@ Rows = variants. All at **matched params and matched compute**; all tuned with
 matched read budget, ≥ pre-registered seeds, on T1 (Source Reliability Reversal),
 with the full (K,R) curve, above the noise floor.
 
+After the robustness probe, both A and B should share the same explicit
+added-state Grip module. A/B differ only in whether that state enters selection:
+A reads/reconstructs Grip with `lambda=0`; B uses `lambda>0` in the selector.
+
 If B does not beat A → the result is "aux supervision reshapes representations"
 (not an attention result). Report and stop the attention line; consider the
 calibration/pivot path.

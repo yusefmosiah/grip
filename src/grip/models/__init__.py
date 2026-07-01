@@ -8,7 +8,7 @@ Order of implementation (mirrors the milestone DAG, not a calendar):
   5. grip_select — sparse + grip-conditioned selection lambda>0 (variant B)
 
 The A-vs-B comparison at matched params and matched read budget is the
-load-bearing experiment. See GLOSSARY.md and research/SPEC-001-avsb.md.
+load-bearing experiment. See GLOSSARY.md and research/SPEC-003-ablations-and-sweeps.md.
 """
 from .dense import DenseTransformer          # noqa: F401
 from .sparse import ContentSparseTransformer  # noqa: F401
