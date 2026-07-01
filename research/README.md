@@ -27,6 +27,9 @@ Read in this order:
     across eight seeds, so Grip A/B remains unauthorized.
 12. `M_REGIME_CALIBRATED_G013.md` - the trained Bayesian/reversal rerun with
     generated calibrated floors; still no program-level A/B authorization.
+13. `M_REGIME_SWEEP_G017.md` - the reusable-runner rerun of the calibrated
+    Bayesian/reversal sweeps; aggregate reports still withhold A/B
+    authorization.
 
 The load-bearing experiment remains `grip-read (A)` vs `grip-select (B)` from
 `SPEC-003`. The mechanism docs do not change the milestone order:
