@@ -30,6 +30,9 @@ Read in this order:
 13. `M_REGIME_SWEEP_G017.md` - the reusable-runner rerun of the calibrated
     Bayesian/reversal sweeps; aggregate reports still withhold A/B
     authorization.
+14. `M_REGIME_SCALE_G019.md` - a reversal seq-32/64 scale map through the
+    module CLI; aggregate reports still pivot, so Grip A/B remains
+    unauthorized.
 
 The load-bearing experiment remains `grip-read (A)` vs `grip-select (B)` from
 `SPEC-003`. The mechanism docs do not change the milestone order:
