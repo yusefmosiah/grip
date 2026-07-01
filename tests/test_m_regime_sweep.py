@@ -48,6 +48,43 @@ def test_m_regime_sweep_cli_prints_aggregate_summary_path(
     assert Path(printed).exists()
     payload = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
     assert len(payload["bayesian"]["rows"]) == 8
+    resolved = json.loads(
+        (out_dir / "decisions" / "seed-0" / "dense" / "config.resolved.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert resolved["eval"]["seed"] == 10_000
+    assert resolved["eval"]["batch_size"] == 1
+
+
+def test_m_regime_sweep_cli_propagates_heldout_eval_options(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Given: a tiny output directory and explicit heldout eval options.
+    out_dir = tmp_path / "cli-sweep"
+
+    # When: the CLI executes the default calibrated Bayesian sweep.
+    exit_code = main(
+        [
+            str(out_dir),
+            "--eval-batch-size",
+            "2",
+            "--eval-seed-offset",
+            "20000",
+        ]
+    )
+
+    # Then: downstream decision artifacts record the requested eval policy.
+    assert exit_code == 0
+    capsys.readouterr()
+    resolved = json.loads(
+        (out_dir / "decisions" / "seed-0" / "dense" / "config.resolved.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert resolved["eval"]["seed"] == 20_000
+    assert resolved["eval"]["batch_size"] == 2
 
 
 def test_m_regime_sweep_rejects_reversal_shape_before_artifacts(tmp_path: Path) -> None:

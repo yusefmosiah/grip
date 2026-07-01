@@ -33,6 +33,8 @@ class MRegimeSweepConfig:
     window: int = 2
     train_steps: int = 0
     train_batch_size: int = 1
+    eval_batch_size: int = 1
+    eval_seed_offset: int = 10_000
     lr: float = 1e-3
     device: str = "cpu"
 
@@ -76,6 +78,8 @@ def _calibration_config(config: MRegimeSweepConfig) -> NoiseFloorCalibrationConf
         window=config.window,
         train_steps=config.train_steps,
         train_batch_size=config.train_batch_size,
+        eval_batch_size=config.eval_batch_size,
+        eval_seed_offset=config.eval_seed_offset,
         lr=config.lr,
         device=config.device,
     )
@@ -116,6 +120,8 @@ def _headroom_config(config: MRegimeSweepConfig, noise_floor_path: Path, seed: i
         window=config.window,
         train_steps=config.train_steps,
         train_batch_size=config.train_batch_size,
+        eval_batch_size=config.eval_batch_size,
+        eval_seed_offset=config.eval_seed_offset,
         lr=config.lr,
     )
 
@@ -165,6 +171,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--window", type=int, default=2)
     parser.add_argument("--train-steps", type=int, default=0)
     parser.add_argument("--train-batch-size", type=int, default=1)
+    parser.add_argument("--eval-batch-size", type=int, default=1)
+    parser.add_argument("--eval-seed-offset", type=int, default=10_000)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args(argv)
@@ -186,6 +194,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             window=args.window,
             train_steps=args.train_steps,
             train_batch_size=args.train_batch_size,
+            eval_batch_size=args.eval_batch_size,
+            eval_seed_offset=args.eval_seed_offset,
             lr=args.lr,
             device=args.device,
         )

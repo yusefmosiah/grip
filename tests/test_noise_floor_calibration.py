@@ -33,6 +33,8 @@ def test_calibrate_noise_floor_writes_scorer_loadable_loss_artifact(tmp_path: Pa
     )
     assert artifact.minimum_signal_threshold["loss"] == 1e-6
     assert raw_artifact["calibration"]["minimum_signal_floor"] == 1e-6
+    assert raw_artifact["calibration"]["eval_batch_size"] == 1
+    assert raw_artifact["calibration"]["eval_seed_offset"] == 10_000
 
     # And: the generated artifact can authorize interpretation through compare().
     gate = run_m_regime_smoke(
@@ -90,3 +92,31 @@ def test_noise_floor_calibration_cli_writes_artifact(tmp_path: Path, capsys: pyt
     printed_path = Path(capsys.readouterr().out.strip())
     assert printed_path == out_dir / "noise-floor.json"
     assert load_noise_floor(printed_path).seed_count == 8
+
+
+def test_noise_floor_calibration_cli_records_heldout_eval_options(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Given: CLI arguments with explicit heldout eval options.
+    out_dir = tmp_path / "cli-noise-floor"
+
+    # When: the calibration CLI runs.
+    exit_code = main(
+        [
+            str(out_dir),
+            "--seed-count",
+            "8",
+            "--eval-batch-size",
+            "2",
+            "--eval-seed-offset",
+            "20000",
+        ]
+    )
+
+    # Then: the calibration artifact records the heldout eval policy.
+    assert exit_code == 0
+    printed_path = Path(capsys.readouterr().out.strip())
+    payload = json.loads(printed_path.read_text(encoding="utf-8"))
+    assert payload["calibration"]["eval_batch_size"] == 2
+    assert payload["calibration"]["eval_seed_offset"] == 20_000

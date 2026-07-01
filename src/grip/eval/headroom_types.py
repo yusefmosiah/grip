@@ -39,6 +39,8 @@ class MRegimeConfig:
     window: int = 2
     train_steps: int = 0
     train_batch_size: int = 1
+    eval_batch_size: int = 1
+    eval_seed_offset: int = 10_000
     lr: float = 1e-3
 
 

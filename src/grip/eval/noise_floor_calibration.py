@@ -42,6 +42,8 @@ class NoiseFloorCalibrationConfig:
     window: int = 2
     train_steps: int = 0
     train_batch_size: int = 1
+    eval_batch_size: int = 1
+    eval_seed_offset: int = 10_000
     lr: float = 1e-3
     device: str = "cpu"
     metric_names: tuple[str, ...] = ("loss",)
@@ -116,6 +118,10 @@ def _validate_calibration_config(config: NoiseFloorCalibrationConfig) -> None:
         raise NoiseFloorCalibrationError("train_steps", "must be non-negative")
     if config.train_batch_size <= 0:
         raise NoiseFloorCalibrationError("train_batch_size", "must be positive")
+    if config.eval_batch_size <= 0:
+        raise NoiseFloorCalibrationError("eval_batch_size", "must be positive")
+    if config.eval_seed_offset <= 0:
+        raise NoiseFloorCalibrationError("eval_seed_offset", "must be positive")
     if config.lr <= 0:
         raise NoiseFloorCalibrationError("lr", "must be positive")
     if config.device != "cpu":
@@ -160,6 +166,8 @@ def _m_regime_config(
         window=config.window,
         train_steps=config.train_steps,
         train_batch_size=config.train_batch_size,
+        eval_batch_size=config.eval_batch_size,
+        eval_seed_offset=config.eval_seed_offset,
         lr=config.lr,
         device=config.device,
     )
@@ -192,6 +200,8 @@ def _artifact_payload(
         "calibration": {
             "baseline_names": list(BASELINE_NAMES),
             "device": config.device,
+            "eval_batch_size": config.eval_batch_size,
+            "eval_seed_offset": config.eval_seed_offset,
             "minimum_signal_floor": config.minimum_signal_floor,
             "task": config.task,
             "train_batch_size": config.train_batch_size,
@@ -217,6 +227,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--seed-count", type=int, default=MIN_NOISE_FLOOR_SEEDS)
     parser.add_argument("--train-steps", type=int, default=0)
     parser.add_argument("--train-batch-size", type=int, default=1)
+    parser.add_argument("--eval-batch-size", type=int, default=1)
+    parser.add_argument("--eval-seed-offset", type=int, default=10_000)
     parser.add_argument("--seq-len", type=int, default=8)
     parser.add_argument("--vocab-size", type=int, default=17)
     parser.add_argument("--n-hypotheses", type=int, default=3)
@@ -231,6 +243,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             n_hypotheses=args.n_hypotheses,
             train_steps=args.train_steps,
             train_batch_size=args.train_batch_size,
+            eval_batch_size=args.eval_batch_size,
+            eval_seed_offset=args.eval_seed_offset,
         )
     )
     print(result.path)

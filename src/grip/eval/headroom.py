@@ -35,7 +35,16 @@ def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
         seed=config.seed,
         device=config.device,
     )
-    eval_tokens = train_tokens[:1]
+    eval_seed = config.seed + config.eval_seed_offset
+    eval_tokens = training_tokens(
+        task=config.task,
+        seq_len=config.seq_len,
+        vocab_size=config.vocab_size,
+        n_hypotheses=config.n_hypotheses,
+        batch_size=config.eval_batch_size,
+        seed=eval_seed,
+        device=config.device,
+    )
     run_dirs = tuple(
         _write_baseline(config, spec, train_tokens, eval_tokens)
         for spec in _baseline_specs(config)
@@ -103,13 +112,20 @@ def _write_baseline(
             out["lm_logits"][:, :-1].reshape(-1, config.vocab_size),
             eval_tokens[:, 1:].reshape(-1),
         )
+    eval_seed = config.seed + config.eval_seed_offset
     (run_dir / "config.resolved.json").write_text(
         json.dumps(_resolved_payload(config, spec), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     (run_dir / "eval_tensors.json").write_text(
         json.dumps(
-            {"loss": float(loss.item()), "tokens": float(eval_tokens.numel())},
+            {
+                "batch_size": config.eval_batch_size,
+                "loss": float(loss.item()),
+                "seed": eval_seed,
+                "seed_offset": config.eval_seed_offset,
+                "tokens": float(eval_tokens.numel()),
+            },
             indent=2,
             sort_keys=True,
         )
@@ -182,6 +198,11 @@ def _resolved_payload(config: MRegimeConfig, spec: _BaselineSpec) -> Mapping[str
             "device": config.device,
             "mode": "preregistered" if config.preregistered else "smoke",
         },
+        "eval": {
+            "batch_size": config.eval_batch_size,
+            "seed": config.seed + config.eval_seed_offset,
+            "seed_offset": config.eval_seed_offset,
+        },
         "seed": config.seed,
         "sparse": {
             "block_size": config.block_size,
@@ -216,6 +237,10 @@ def _validate_config(config: MRegimeConfig) -> None:
         raise HeadroomConfigError("train_steps", "must be non-negative")
     if config.train_batch_size <= 0:
         raise HeadroomConfigError("train_batch_size", "must be positive")
+    if config.eval_batch_size <= 0:
+        raise HeadroomConfigError("eval_batch_size", "must be positive")
+    if config.eval_seed_offset <= 0:
+        raise HeadroomConfigError("eval_seed_offset", "must be positive")
     if config.lr <= 0:
         raise HeadroomConfigError("lr", "must be positive")
     if config.device != "cpu":

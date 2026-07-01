@@ -193,12 +193,98 @@ def test_m_regime_trained_run_records_training_budget(tmp_path: Path) -> None:
         assert json.loads(train_log[-1])["step"] == 1
 
 
+def test_m_regime_trained_run_uses_heldout_eval_batch(tmp_path: Path) -> None:
+    # Given: a trained M-regime config with explicit heldout eval provenance.
+    noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
+    config = MRegimeConfig(
+        out_dir=tmp_path / "m-regime",
+        noise_floor_path=noise_floor_path,
+        preregistered=True,
+        seed=5,
+        train_steps=1,
+        train_batch_size=2,
+        eval_batch_size=3,
+        eval_seed_offset=10_000,
+    )
+
+    # When: the M-regime gate writes baseline artifacts.
+    result = run_m_regime_smoke(config)
+
+    # Then: evaluation is held out from the training batch and recorded.
+    dense_dir = next(run_dir for run_dir in result.run_dirs if run_dir.name == "dense")
+    resolved = json.loads((dense_dir / "config.resolved.json").read_text(encoding="utf-8"))
+    eval_tensors = json.loads((dense_dir / "eval_tensors.json").read_text(encoding="utf-8"))
+    assert resolved["eval"] == {
+        "batch_size": 3,
+        "seed": 10_005,
+        "seed_offset": 10_000,
+    }
+    assert eval_tensors["tokens"] == 24.0
+    assert eval_tensors["seed"] == 10_005
+    assert eval_tensors["batch_size"] == 3
+
+
+def test_m_regime_trained_run_requests_disjoint_eval_seed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given: a headroom run with token generation calls observed at the boundary.
+    config = MRegimeConfig(
+        out_dir=tmp_path / "m-regime",
+        seed=3,
+        train_steps=0,
+        train_batch_size=2,
+        eval_batch_size=1,
+        eval_seed_offset=10_000,
+    )
+    original_training_tokens = headroom.training_tokens
+    observed: list[tuple[int, int]] = []
+
+    def capture_training_tokens(
+        *,
+        task: str,
+        seq_len: int,
+        vocab_size: int,
+        n_hypotheses: int,
+        batch_size: int,
+        seed: int,
+        device: str,
+    ) -> torch.Tensor:
+        observed.append((seed, batch_size))
+        return original_training_tokens(
+            task=task,
+            seq_len=seq_len,
+            vocab_size=vocab_size,
+            n_hypotheses=n_hypotheses,
+            batch_size=batch_size,
+            seed=seed,
+            device=device,
+        )
+
+    monkeypatch.setattr(headroom, "training_tokens", capture_training_tokens)
+
+    # When: the M-regime gate runs.
+    run_m_regime_smoke(config)
+
+    # Then: train and eval batches come from disjoint deterministic seeds.
+    assert observed == [(3, 2), (10_003, 1)]
+
+
 def test_m_regime_trained_run_rejects_invalid_training_budget(tmp_path: Path) -> None:
     # Given: a training config with impossible batch size.
     config = MRegimeConfig(out_dir=tmp_path / "m-regime", train_steps=1, train_batch_size=0)
 
     # When / Then: the headroom boundary rejects it before writing run claims.
     with pytest.raises(ValueError, match="train_batch_size"):
+        run_m_regime_smoke(config)
+
+
+def test_m_regime_trained_run_rejects_invalid_eval_budget(tmp_path: Path) -> None:
+    # Given: a training config with impossible heldout eval batch size.
+    config = MRegimeConfig(out_dir=tmp_path / "m-regime", eval_batch_size=0)
+
+    # When / Then: the headroom boundary rejects it before writing run claims.
+    with pytest.raises(ValueError, match="eval_batch_size"):
         run_m_regime_smoke(config)
 
 
