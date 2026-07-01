@@ -75,6 +75,13 @@ class BayesianEvidenceStream:
         self.T = seq_len
         self.vocab_size = vocab_size
         self.seed = seed
+        rng = np.random.default_rng(seed)
+        info_vocab = vocab_size - 1
+        eps_scale = 0.20
+        eps = rng.normal(0.0, eps_scale, size=(info_vocab, num_hypotheses))
+        likelihood = np.exp(eps)
+        self._likelihood = likelihood / likelihood.sum(axis=0, keepdims=True)
+        self._marginal = self._likelihood.mean(axis=1)
 
     def generate(self, seed: int | None = None) -> StreamSample:
         rng = np.random.default_rng(self.seed if seed is None else seed)
@@ -87,24 +94,8 @@ class BayesianEvidenceStream:
         # per-source reliability, drawn Beta; mapped into [0.2, 0.95]
         r = 0.2 + 0.75 * rng.beta(2.0, 2.0, size=S)
 
-        # hypothesis-conditional likelihood table L[token, h] over info vocab.
-        # EVERY token carries some hypothesis-conditional information: the table
-        # is a full log-linear model, log L[token,h] = eps[token,h], with eps
-        # drawn i.i.d. normal and scaled so that:
-        #   - no single token is a pure hypothesis detector (anti-legibility),
-        #   - belief must integrate across MANY tokens (history-dependence),
-        #   - belief locks mid-sequence (tuned eps_scale), not instantly/never.
-        # This is the design fix for the "tokens 4..62 are no-ops" failure that
-        # the history-dependence conformance test catches: a sparse diagonal L
-        # makes the task trivially solvable by token-identity detection.
-        eps_scale = 0.20    # tuned: belief locks ~step 227/512, frac>0.9 ~0.38,
-                            # ~160 decisive steps. Genuine mid-sequence evolution
-                            # — real trajectory for the derivative probe.
-                            # see sweep in commit history.
-        eps = rng.normal(0.0, eps_scale, size=(info_vocab, K))
-        L = np.exp(eps)
-        L = L / L.sum(axis=0, keepdims=True)              # normalize per hypothesis
-        marginal = L.mean(axis=1)                          # decoy distribution
+        L = self._likelihood
+        marginal = self._marginal
 
         # --- reliability reversal schedule ---
         # Multiple sources can flip, at staggered late steps, with a chance of
@@ -146,11 +137,11 @@ class BayesianEvidenceStream:
                 tok_dist = L[:, h_star]
             else:
                 tok_dist = marginal
-            tok = int(rng.choice(info_vocab, p=tok_dist))
+            tok = int(rng.choice(info_vocab, p=tok_dist)) + 1
             tokens[t] = tok
 
             # Bayesian update on the OBSERVED token (the model sees tokens, not h*).
-            likelihood = L[tok]                              # [K]
+            likelihood = L[tok - 1]                          # [K]
             post = prior * likelihood
             post = post / post.sum()
             posterior[t] = post

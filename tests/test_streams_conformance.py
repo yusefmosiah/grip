@@ -80,6 +80,12 @@ def test_token_ids_in_vocab(sample):
     assert sample.tokens.max() < STREAM_KW["vocab_size"]
 
 
+def test_padding_token_only_appears_after_natural_length(sample):
+    natural_len = sample.metadata["natural_len"]
+    assert np.all(sample.tokens[:natural_len] != 0)
+    assert np.all(sample.tokens[natural_len:] == 0)
+
+
 def test_posterior_simplex(sample):
     P = sample.posterior
     assert P.shape == (STREAM_KW["seq_len"], STREAM_KW["num_hypotheses"])
@@ -188,6 +194,29 @@ def test_belief_move_is_history_dependent(stream):
         f"generator looks like a lookup table (legibility leak). "
         f"Hardening required before any model result is interpretable."
     )
+
+
+def test_token_likelihood_semantics_are_global_across_streams():
+    stream = BayesianEvidenceStream(num_hypotheses=2, num_sources=1,
+                                    seq_len=128, vocab_size=16, seed=7)
+    deltas_by_token = {}
+    for seed in range(20):
+        s = stream.generate(seed=seed)
+        logit = np.log(s.posterior[:, 0] / s.posterior[:, 1])
+        delta = np.diff(logit)
+        for t, move in enumerate(delta, start=1):
+            tok = int(s.tokens[t])
+            if tok == 0:
+                continue
+            deltas_by_token.setdefault(tok, []).append(float(move))
+
+    checked = 0
+    for moves in deltas_by_token.values():
+        if len(moves) < 5:
+            continue
+        checked += 1
+        assert np.std(moves) < 1e-8
+    assert checked >= 5
 
 
 # ---------- sanity: posterior matches hand-computed example ----------
