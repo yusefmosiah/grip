@@ -62,6 +62,31 @@ def r2_score(predicted: torch.Tensor, truth: torch.Tensor) -> float:
     return float(1.0 - ss_res / ss_tot)
 
 
+def mutual_info_discrete(x: torch.Tensor, y: torch.Tensor) -> float:
+    """Empirical mutual information in nats for two discrete 1D tensors."""
+    if x.ndim != 1 or y.ndim != 1:
+        msg = "mutual_info_discrete expects 1D tensors"
+        raise ValueError(msg)
+    if x.shape[0] != y.shape[0]:
+        msg = "mutual_info_discrete expects tensors with equal length"
+        raise ValueError(msg)
+    if x.numel() == 0:
+        return 0.0
+
+    x_ids = torch.unique(x, sorted=True, return_inverse=True)[1]
+    y_ids = torch.unique(y, sorted=True, return_inverse=True)[1]
+    nx = int(x_ids.max().item()) + 1
+    ny = int(y_ids.max().item()) + 1
+    joint = torch.zeros((nx, ny), dtype=torch.float64, device=x.device)
+    joint.index_put_((x_ids, y_ids), torch.ones_like(x_ids, dtype=torch.float64), accumulate=True)
+    joint = joint / float(x.numel())
+    px = joint.sum(dim=1, keepdim=True)
+    py = joint.sum(dim=0, keepdim=True)
+    expected = px @ py
+    mask = joint > 0
+    return float((joint[mask] * torch.log(joint[mask] / expected[mask])).sum().item())
+
+
 def decisive_token_recall(
     selected_blocks: torch.Tensor, decisive_idx: torch.Tensor
 ) -> float:

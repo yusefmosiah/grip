@@ -1,4 +1,7 @@
 """Unit tests for metrics — numerical correctness on known inputs."""
+import math
+
+import pytest
 import torch
 from grip.eval import metrics as M
 
@@ -56,3 +59,32 @@ def test_ece_perfect_calibration():
     t = torch.tensor([0] * 4 + [1] * 1 + [0] * 1 + [1] * 4)  # acc in 0.9 bin = 0.9
     ece = M.ece(p, t, n_bins=10)
     assert ece < 0.1
+
+
+def test_mutual_info_discrete_zero_for_independent_variables():
+    x = torch.tensor([0, 0, 1, 1, 0, 0, 1, 1])
+    y = torch.tensor([0, 1, 0, 1, 0, 1, 0, 1])
+    assert M.mutual_info_discrete(x, y) < 1e-8
+
+
+def test_mutual_info_discrete_positive_for_copied_variables():
+    x = torch.tensor([0, 0, 1, 1])
+    y = torch.tensor([0, 0, 1, 1])
+    assert M.mutual_info_discrete(x, y) > 0.6
+
+
+def test_mutual_info_discrete_matches_known_binary_value():
+    x = torch.tensor([0, 0, 1, 1])
+    y = torch.tensor([0, 0, 1, 1])
+    assert abs(M.mutual_info_discrete(x, y) - math.log(2.0)) < 1e-8
+
+
+def test_mutual_info_discrete_empty_is_zero():
+    x = torch.tensor([], dtype=torch.long)
+    y = torch.tensor([], dtype=torch.long)
+    assert M.mutual_info_discrete(x, y) == 0.0
+
+
+def test_mutual_info_discrete_rejects_length_mismatch():
+    with pytest.raises(ValueError, match="equal length"):
+        M.mutual_info_discrete(torch.tensor([0, 1]), torch.tensor([0]))

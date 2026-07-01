@@ -11,7 +11,8 @@ def collate(samples: list[StreamSample], device: str = "cpu") -> dict:
 
     Returns dict with keys:
         tokens:[B,T]  answer:[B]  posterior:[B,T,K]  entropy:[B,T]
-        d_conf:[B,T]  dd_conf:[B,T]  source_trust:[B,T,S]
+        belief_move:[B,T]  d_conf:[B,T]  dd_conf:[B,T]
+        source_idx:[B,T]  source_trust:[B,T,S]
         decisive_idx:[B,T]  block_boundaries:[B,nb+1] (ragged -> padded)
     """
     def stack(name, dtype):
@@ -22,8 +23,10 @@ def collate(samples: list[StreamSample], device: str = "cpu") -> dict:
         "answer": stack("answer", torch.long),
         "posterior": stack("posterior", torch.float32),
         "entropy": stack("entropy", torch.float32),
+        "belief_move": stack("belief_move", torch.float32),
         "d_conf": stack("d_conf", torch.float32),
         "dd_conf": stack("dd_conf", torch.float32),
+        "source_idx": stack("source_idx", torch.long),
         "source_trust": stack("source_trust", torch.float32),
         "decisive_idx": stack("decisive_idx", torch.long),
     }

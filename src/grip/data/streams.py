@@ -32,12 +32,14 @@ class StreamSample:
     posterior: np.ndarray         # float[T, K]
     entropy: np.ndarray           # float[T]
     # --- derivative features (THE probe targets) ---
+    belief_move: np.ndarray       # float[T]   per-token true belief move
     d_conf: np.ndarray            # float[T]   topmass[t]-topmass[t-1]
     dd_conf: np.ndarray           # float[T]   second difference of topmass
     # --- routing features ---
+    source_idx: np.ndarray        # int[T]     observed source id, -1 for PAD
     source_trust: np.ndarray      # float[T, S]
     # --- ground-truth indices for decisive-token recall ---
-    decisive_idx: np.ndarray      # int[T]   1 at top-5% belief-move steps
+    decisive_idx: np.ndarray      # int[T]   1 at thresholded belief-move steps
     # --- block boundaries for sparse attention ---
     block_boundaries: np.ndarray  # int[num_blocks+1]
     metadata: dict = field(default_factory=dict)
@@ -108,6 +110,7 @@ class BayesianEvidenceStream:
 
         # --- forward simulate ---
         tokens = np.full(T, PAD_TOKEN, dtype=np.int64)
+        source_idx = np.full(T, -1, dtype=np.int64)
         posterior = np.empty((T, K), dtype=np.float64)
         source_trust = np.empty((T, S), dtype=np.float64)
         natural_len = int(rng.integers(T // 2, T + 1))      # varied length, then padded
@@ -131,6 +134,7 @@ class BayesianEvidenceStream:
                 r_current[fsrc] = ftarget
                 fi += 1
             s_t = int(rng.integers(S))
+            source_idx[t] = s_t
             source_trust[t] = r_current
             informative = rng.random() < r_current[s_t]
             if informative:
@@ -140,8 +144,11 @@ class BayesianEvidenceStream:
             tok = int(rng.choice(info_vocab, p=tok_dist)) + 1
             tokens[t] = tok
 
-            # Bayesian update on the OBSERVED token (the model sees tokens, not h*).
-            likelihood = L[tok - 1]                          # [K]
+            # Bayesian update on the OBSERVED token and source trust.
+            likelihood = (
+                r_current[s_t] * L[tok - 1]
+                + (1.0 - r_current[s_t]) * marginal[tok - 1]
+            )
             post = prior * likelihood
             post = post / post.sum()
             posterior[t] = post
@@ -155,7 +162,9 @@ class BayesianEvidenceStream:
 
         # --- derive latents ---
         topmass = posterior.max(axis=1)
-        entropy = -(np.where(posterior > 0, posterior * np.log(posterior), 0.0)).sum(axis=1)
+        log_posterior = np.zeros_like(posterior)
+        np.log(posterior, out=log_posterior, where=posterior > 0)
+        entropy = -(posterior * log_posterior).sum(axis=1)
 
         d_conf = np.zeros(T)
         d_conf[1:] = topmass[1:] - topmass[:-1]
@@ -181,8 +190,10 @@ class BayesianEvidenceStream:
             answer=int(posterior[-1].argmax()),
             posterior=posterior,
             entropy=entropy,
+            belief_move=d_conf.copy(),
             d_conf=d_conf,
             dd_conf=dd_conf,
+            source_idx=source_idx,
             source_trust=source_trust,
             decisive_idx=decisive_idx,
             block_boundaries=block_boundaries,

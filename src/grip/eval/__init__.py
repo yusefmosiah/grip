@@ -13,5 +13,5 @@ Required metrics (per GLOSSARY and the program):
 """
 from .metrics import (  # noqa: F401
     accuracy, nll, brier_score, ece,
-    recon_error, decisive_token_recall,
+    recon_error, decisive_token_recall, mutual_info_discrete,
 )

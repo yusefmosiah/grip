@@ -50,8 +50,10 @@ REQ_FIELDS = {
     "tokens": (np.ndarray, 1),
     "posterior": (np.ndarray, 2),
     "entropy": (np.ndarray, 1),
+    "belief_move": (np.ndarray, 1),
     "d_conf": (np.ndarray, 1),
     "dd_conf": (np.ndarray, 1),
+    "source_idx": (np.ndarray, 1),
     "source_trust": (np.ndarray, 2),
     "decisive_idx": (np.ndarray, 1),
     "block_boundaries": (np.ndarray, 1),
@@ -129,6 +131,10 @@ def test_d_conf_matches_posterior(stream, sample):
     np.testing.assert_allclose(sample.d_conf, expected, atol=1e-8)
 
 
+def test_belief_move_is_true_per_token_confidence_move(sample):
+    np.testing.assert_allclose(sample.belief_move, sample.d_conf, atol=1e-12)
+
+
 def test_dd_conf_second_difference(stream, sample):
     topmass = sample.posterior.max(axis=1)
     expected = np.zeros_like(topmass)
@@ -158,6 +164,14 @@ def test_block_boundaries_partition(sample):
 
 def test_source_trust_shape(sample):
     assert sample.source_trust.shape == (STREAM_KW["seq_len"], STREAM_KW["num_sources"])
+
+
+def test_source_idx_shape_and_padding(sample):
+    natural_len = sample.metadata["natural_len"]
+    assert sample.source_idx.shape == (STREAM_KW["seq_len"],)
+    assert np.all(sample.source_idx[:natural_len] >= 0)
+    assert np.all(sample.source_idx[:natural_len] < STREAM_KW["num_sources"])
+    assert np.all(sample.source_idx[natural_len:] == -1)
 
 
 # ---------- the anti-legibility property (Transform 3) ----------
@@ -196,27 +210,29 @@ def test_belief_move_is_history_dependent(stream):
     )
 
 
-def test_token_likelihood_semantics_are_global_across_streams():
+def test_token_likelihood_table_is_global_across_streams():
     stream = BayesianEvidenceStream(num_hypotheses=2, num_sources=1,
                                     seq_len=128, vocab_size=16, seed=7)
-    deltas_by_token = {}
+    likelihood = stream._likelihood.copy()
     for seed in range(20):
-        s = stream.generate(seed=seed)
-        logit = np.log(s.posterior[:, 0] / s.posterior[:, 1])
-        delta = np.diff(logit)
-        for t, move in enumerate(delta, start=1):
-            tok = int(s.tokens[t])
-            if tok == 0:
-                continue
-            deltas_by_token.setdefault(tok, []).append(float(move))
+        stream.generate(seed=seed)
+        np.testing.assert_allclose(stream._likelihood, likelihood, atol=0.0)
 
-    checked = 0
-    for moves in deltas_by_token.values():
-        if len(moves) < 5:
-            continue
-        checked += 1
-        assert np.std(moves) < 1e-8
-    assert checked >= 5
+
+def test_posterior_update_uses_source_reliability(stream):
+    sample = stream.generate(seed=3)
+    t = 1
+    tok = int(sample.tokens[t])
+    src = int(sample.source_idx[t])
+    trust = float(sample.source_trust[t, src])
+    prior = sample.posterior[t - 1]
+    likelihood = (
+        trust * stream._likelihood[tok - 1]
+        + (1.0 - trust) * stream._marginal[tok - 1]
+    )
+    expected = prior * likelihood
+    expected = expected / expected.sum()
+    np.testing.assert_allclose(sample.posterior[t], expected, atol=1e-12)
 
 
 # ---------- sanity: posterior matches hand-computed example ----------
