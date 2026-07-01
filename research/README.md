@@ -23,6 +23,8 @@ Read in this order:
    corrective trained-M-regime slice.
 10. `M_REGIME_TRAINED_G010.md` - the minimal trained Bayesian M-regime result;
     still pivots, so Grip A/B remains unauthorized.
+11. `M_REGIME_REVERSAL_G011.md` - the minimal trained reversal result; mixed
+    across eight seeds, so Grip A/B remains unauthorized.
 
 The load-bearing experiment remains `grip-read (A)` vs `grip-select (B)` from
 `SPEC-003`. The mechanism docs do not change the milestone order:
