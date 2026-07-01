@@ -15,3 +15,4 @@ from .metrics import (  # noqa: F401
     accuracy, nll, brier_score, ece,
     recon_error, decisive_token_recall, mutual_info_discrete,
 )
+from .sweep_plan import default_spec003_plan, validate_sweep_plan  # noqa: F401
