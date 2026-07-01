@@ -81,6 +81,8 @@ class ComparisonReport:
 
 def score_run(run_dir: Path) -> RunScore:
     metrics_path = run_dir / "metrics.json"
+    if not metrics_path.exists() and (run_dir / "eval_tensors.json").exists():
+        write_metrics(run_dir, _metrics_from_eval_artifact(run_dir / "eval_tensors.json"))
     if not metrics_path.exists():
         raise ScoreArtifactError(metrics_path, "metrics.json is required")
     raw = json.loads(metrics_path.read_text(encoding="utf-8"))
@@ -94,6 +96,30 @@ def score_run(run_dir: Path) -> RunScore:
             raise ScoreArtifactError(metrics_path, f"metric {name!r} must be numeric")
         metrics[name] = float(value)
     return RunScore(run_dir=run_dir, metrics=metrics)
+
+
+def write_metrics(run_dir: Path, metrics: Mapping[str, int | float]) -> Path:
+    parsed: dict[str, float] = {}
+    for name, value in metrics.items():
+        if not _is_number(value):
+            raise ScoreArtifactError(run_dir / "metrics.json", f"metric {name!r} must be numeric")
+        parsed[name] = float(value)
+    path = run_dir / "metrics.json"
+    path.write_text(json.dumps(parsed, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return path
+
+
+def _metrics_from_eval_artifact(path: Path) -> Mapping[str, float]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ScoreArtifactError(path, "eval_tensors must be a JSON object")
+    loss = raw.get("loss")
+    tokens = raw.get("tokens")
+    if not _is_number(loss):
+        raise ScoreArtifactError(path, "loss must be numeric")
+    if not _is_number(tokens):
+        raise ScoreArtifactError(path, "tokens must be numeric")
+    return {"loss": float(loss), "tokens": float(tokens)}
 
 
 def load_noise_floor(path: Path) -> NoiseFloorArtifact:
