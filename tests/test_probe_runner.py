@@ -99,7 +99,6 @@ def test_probe_experiment_accepts_disjoint_probe_seed_ranges():
         n_train_streams=2,
         n_test_streams=2,
         device="cpu",
-        probe_epochs=1,
         probe_train_seed_base=10_000_000,
         probe_test_seed_base=20_000_000,
     )
@@ -122,8 +121,8 @@ def test_linear_probe_uses_closed_form_ridge_solution():
     train_mask[0, 2] = False
     train_mask[1, 1] = False
 
-    # When: the linear probe is fit with zero epochs.
-    result = linear_probe(hidden, target, "linear", train_mask, n_epochs=0)
+    # When: the linear probe is fit without optimizer controls.
+    result = linear_probe(hidden, target, "linear", train_mask)
 
     # Then: the closed-form fit succeeds without optimizer training.
     assert result.r2 > 0.99
@@ -136,11 +135,26 @@ def test_linear_probe_accepts_mps_device_request_without_mps_float64():
     target = hidden[..., 0] + hidden[..., 1]
     train_mask = torch.tensor([[True, True], [False, False]])
 
-    # When: the closed-form probe is fit with device="mps".
+    # When: a legacy device argument is passed to the closed-form probe.
     with pytest.warns(DeprecationWarning, match="closed-form CPU ridge"):
-        result = linear_probe(hidden, target, "linear", train_mask, n_epochs=0, device="mps")
+        result = linear_probe(hidden, target, "linear", train_mask, device="mps")
 
     # Then: solving happens on a supported dtype/device path.
+    assert result.n_train == 2
+    assert result.n_test == 2
+
+
+def test_linear_probe_warns_for_positional_legacy_optimizer_args():
+    # Given: a caller still using the old positional optimizer arguments.
+    hidden = torch.tensor([[[0.0, 0.0], [1.0, 0.0]], [[0.0, 1.0], [1.0, 1.0]]])
+    target = hidden[..., 0] + hidden[..., 1]
+    train_mask = torch.tensor([[True, True], [False, False]])
+
+    # When: deprecated positional arguments are provided.
+    with pytest.warns(DeprecationWarning, match="n_epochs, lr"):
+        result = linear_probe(hidden, target, "linear", train_mask, 300, 5e-3)
+
+    # Then: the compatibility shim warns and still returns a closed-form fit.
     assert result.n_train == 2
     assert result.n_test == 2
 

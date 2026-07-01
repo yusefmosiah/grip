@@ -44,14 +44,10 @@ def _flat_probe(
     hid: torch.Tensor,      # [P, d]
     tgt: torch.Tensor,      # [P,] or [P, k]
     is_train: torch.Tensor, # [P] bool
-    n_epochs: int,
-    lr: float = 5e-3,
     wd: float = 1e-4,
-    device: str = "cpu",
 ) -> tuple[float, float]:
     """Fit linear hid->tgt on is_train positions, eval MSE & R^2 on the rest.
     Targets standardized using TRAIN stats; metrics reported in original units."""
-    _warn_if_legacy_probe_args_used(n_epochs=n_epochs, lr=lr, device=device)
     hid = hid.detach().cpu().to(torch.float64)
     tgt = tgt.detach().cpu().to(torch.float64)
     is_train = is_train.detach().cpu().to(dtype=torch.bool)
@@ -85,13 +81,17 @@ def _flat_probe(
     return mse, r2
 
 
-def _warn_if_legacy_probe_args_used(n_epochs: int, lr: float, device: str) -> None:
+def _warn_if_legacy_probe_args_used(
+    n_epochs: int | None,
+    lr: float | None,
+    device: str | None,
+) -> None:
     legacy_args = []
-    if n_epochs != 300:
+    if n_epochs is not None:
         legacy_args.append("n_epochs")
-    if lr != 5e-3:
+    if lr is not None:
         legacy_args.append("lr")
-    if device != "cpu":
+    if device is not None:
         legacy_args.append("device")
     if not legacy_args:
         return
@@ -105,16 +105,18 @@ def _warn_if_legacy_probe_args_used(n_epochs: int, lr: float, device: str) -> No
 
 def linear_probe(
     hidden: torch.Tensor, target: torch.Tensor, target_name: str,
-    train_mask: torch.Tensor, n_epochs: int = 300, lr: float = 5e-3,
-    device: str = "cpu", weight_decay: float = 1e-4,
+    train_mask: torch.Tensor,
+    n_epochs: int | None = None, lr: float | None = None,
+    device: str | None = None, *, weight_decay: float = 1e-4,
 ) -> ProbeResult:
+    _warn_if_legacy_probe_args_used(n_epochs=n_epochs, lr=lr, device=device)
     hid = hidden.reshape(-1, hidden.shape[-1])
     if target.dim() == 2:
         tgt = target.reshape(-1)
     else:
         tgt = target.reshape(-1, target.shape[-1])
     is_train = train_mask.reshape(-1)
-    mse, r2 = _flat_probe(hid, tgt, is_train, n_epochs, lr, weight_decay, device)
+    mse, r2 = _flat_probe(hid, tgt, is_train, weight_decay)
     return ProbeResult(
         target_name,
         mse,
@@ -148,7 +150,6 @@ def run_probe_experiment(
     n_test_streams: int = 80,
     seed: int = 0,
     device: str = "cpu",
-    probe_epochs: int = 300,
     probe_train_seed_base: int = 10_000_000,
     probe_test_seed_base: int = 20_000_000,
 ) -> ProbeExperimentResult:
@@ -208,7 +209,7 @@ def run_probe_experiment(
     def run(name, target_2d):
         tgt = target_2d[keep]                                   # [P,]
         hid = H[keep]                                           # [P,d]
-        mse, r2 = _flat_probe(hid, tgt, flat_train, probe_epochs, device=device)
+        mse, r2 = _flat_probe(hid, tgt, flat_train)
         return ProbeResult(name, mse, r2,
                            n_train=int(flat_train.sum()),
                            n_test=int((~flat_train).sum()))
