@@ -94,6 +94,64 @@ def test_compare_allows_preregistered_interpretation_with_valid_noise_floor(tmp_
     assert report.reason == "ok"
 
 
+def test_compare_blocks_preregistered_noise_floor_without_run_metric_coverage(tmp_path: Path) -> None:
+    # Given: two loss-scored runs and a schema-valid noise floor for a different metric.
+    run_a = _write_run(tmp_path / "run-a", {"loss": 0.70})
+    run_b = _write_run(tmp_path / "run-b", {"loss": 0.74})
+    noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
+
+    # When: the comparison is explicitly marked preregistered.
+    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+
+    # Then: missing metric coverage still blocks interpretation.
+    assert report.interpretable is False
+    assert report.reason == "noise_floor_missing_metric"
+
+
+def test_compare_does_not_require_noise_floor_for_token_bookkeeping(tmp_path: Path) -> None:
+    # Given: two loss-scored runs that also include token bookkeeping.
+    run_a = _write_run(tmp_path / "run-a", {"loss": 0.70, "tokens": 8.0})
+    run_b = _write_run(tmp_path / "run-b", {"loss": 0.74, "tokens": 8.0})
+    noise_floor_path = tmp_path / "noise-floor.json"
+    payload = {
+        "kind": "M-noise-floor",
+        "seed_count": 8,
+        "seed_ids": list(range(8)),
+        "identical_config_pairs": [
+            {"left": f"seed-{seed}-a", "right": f"seed-{seed}-b"}
+            for seed in range(8)
+        ],
+        "minimum_signal_threshold": {"loss": 0.02},
+        "metric_ceilings": {"loss": 0.02},
+        "metric_deltas": {"loss": [0.01, -0.02, 0.0, 0.015, -0.01, 0.005, 0.02, -0.015]},
+    }
+    noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    # When: the comparison is explicitly marked preregistered.
+    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+
+    # Then: token bookkeeping does not block loss-covered interpretation.
+    assert report.interpretable is True
+    assert report.reason == "ok"
+
+
+def test_compare_blocks_threshold_only_noise_floor_metric(tmp_path: Path) -> None:
+    # Given: loss-scored runs and a noise floor with loss threshold but no loss deltas.
+    run_a = _write_run(tmp_path / "run-a", {"loss": 0.70})
+    run_b = _write_run(tmp_path / "run-b", {"loss": 0.74})
+    noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
+    payload = json.loads(noise_floor_path.read_text(encoding="utf-8"))
+    payload["minimum_signal_threshold"]["loss"] = 0.02
+    noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    # When: the comparison is explicitly marked preregistered.
+    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+
+    # Then: threshold-only coverage does not authorize interpretation.
+    assert report.interpretable is False
+    assert report.reason == "noise_floor_missing_metric"
+
+
 def test_compare_rejects_below_floor_noise_artifact_without_raising(tmp_path: Path) -> None:
     # Given: two scored runs and an invalid under-seeded noise-floor artifact.
     run_a = _write_run(tmp_path / "run-a", {"accuracy": 0.70})
