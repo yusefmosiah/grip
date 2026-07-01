@@ -25,6 +25,8 @@ Read in this order:
     still pivots, so Grip A/B remains unauthorized.
 11. `M_REGIME_REVERSAL_G011.md` - the minimal trained reversal result; mixed
     across eight seeds, so Grip A/B remains unauthorized.
+12. `M_REGIME_CALIBRATED_G013.md` - the trained Bayesian/reversal rerun with
+    generated calibrated floors; still no program-level A/B authorization.
 
 The load-bearing experiment remains `grip-read (A)` vs `grip-select (B)` from
 `SPEC-003`. The mechanism docs do not change the milestone order:
