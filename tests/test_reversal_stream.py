@@ -120,6 +120,11 @@ def test_collate_includes_source_idx_and_belief_move():
     # Then: the debugging/provenance latents remain available in batch form.
     assert batch["source_idx"].shape == (4, 48)
     assert batch["belief_move"].shape == (4, 48)
+    assert batch["real_mask"].shape == (4, 48)
+    for row, sample in enumerate(samples):
+        natural_len = int(sample.metadata["natural_len"])
+        assert batch["real_mask"][row, :natural_len].all()
+        assert not batch["real_mask"][row, natural_len:].any()
     np.testing.assert_allclose(
         batch["belief_move"].numpy(),
         np.stack([sample.d_conf for sample in samples]),

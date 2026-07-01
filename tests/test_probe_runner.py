@@ -1,3 +1,5 @@
+import json
+
 import torch
 import pytest
 
@@ -7,8 +9,8 @@ from grip.analysis.run_probe_000 import (
     PROBE_TRAIN_SEED_BASE,
     SEED_STRIDE,
     interpret_probe_result,
+    main,
     probe_seed_bases,
-    train_backbone,
 )
 from grip.data import BayesianEvidenceStream
 from grip.models import DenseTransformer
@@ -61,25 +63,43 @@ def test_interpretation_reports_mixed_derivative_readability():
     assert "d_conf" in result.message
 
 
-def test_train_backbone_accepts_level_auxiliary_weights():
-    stream = BayesianEvidenceStream(num_hypotheses=2, num_sources=1, seq_len=8, vocab_size=8, seed=0)
+def test_main_reports_derivative_supervision_metadata(tmp_path):
+    # Given: a tiny CPU derivative-supervised probe run.
+    out_dir = tmp_path / "probe-derivaux"
 
-    model = train_backbone(
-        stream,
+    # When: the runner writes its report.
+    main(
+        out_dir=out_dir,
+        n_steps=1,
+        n_train_streams=2,
+        n_test_streams=2,
+        device="cpu",
+        seed=0,
+        seq_len=8,
+        batch=1,
         d_model=16,
         n_layers=1,
         n_heads=4,
-        n_steps=1,
-        batch=1,
-        device="cpu",
-        lm_weight=0.1,
-        aux_weight=1.0,
-        topmass_weight=1.0,
-        entropy_weight=1.0,
-        log_every=99,
+        lr=1e-3,
+        d_conf_weight=10.0,
+        dd_conf_weight=20.0,
     )
 
-    assert isinstance(model, DenseTransformer)
+    # Then: report metadata makes the derivative-supervision condition explicit.
+    report = json.loads((out_dir / "report.json").read_text())
+    assert report["training"]["derivative_supervision_enabled"]
+    assert report["training"]["d_conf_weight"] == 10.0
+    assert report["training"]["dd_conf_weight"] == 20.0
+    assert set(report["final_auxiliary_losses"]) == {
+        "topmass_loss",
+        "entropy_loss",
+        "d_conf_loss",
+        "dd_conf_loss",
+    }
+    assert report["run"]["n_steps"] == 1
+    assert report["run"]["lr"] == 1e-3
+    assert report["model"] == {"d_model": 16, "n_layers": 1, "n_heads": 4}
+    assert report["stream"]["seq_len"] == 8
 
 
 def test_probe_experiment_accepts_disjoint_probe_seed_ranges():

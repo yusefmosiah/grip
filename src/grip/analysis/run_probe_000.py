@@ -10,23 +10,19 @@ Run: python -m grip.analysis.run_probe_000
 from __future__ import annotations
 from dataclasses import asdict, dataclass
 import json
-import time
 from pathlib import Path
+from typing import Final
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-from grip.data import BayesianEvidenceStream, make_batch
-from grip.models import DenseTransformer
+from grip.data import BayesianEvidenceStream
 from .probe import ProbeExperimentResult, run_probe_experiment
+from .probe_training import SupervisionWeights, train_backbone, train_backbone_with_report
 
 
-LEVEL_CONTROL_R2_THRESHOLD = 0.5
-DERIVATIVE_R2_THRESHOLD = 0.2
-PROBE_TRAIN_SEED_BASE = 10_000_000
-PROBE_TEST_SEED_BASE = 20_000_000
-SEED_STRIDE = 1_000_000
+LEVEL_CONTROL_R2_THRESHOLD: Final = 0.5
+DERIVATIVE_R2_THRESHOLD: Final = 0.2
+PROBE_TRAIN_SEED_BASE: Final = 10_000_000
+PROBE_TEST_SEED_BASE: Final = 20_000_000
+SEED_STRIDE: Final = 1_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,76 +83,45 @@ def interpret_probe_result(
     )
 
 
-def train_backbone(
-    stream, d_model=128, n_layers=4, n_heads=4,
-    n_steps=1500, batch=8, lr=5e-4, device="mps", seed=0,
-    lm_weight=0.1, aux_weight=5.0, topmass_weight=10.0,
-    entropy_weight=3.0, log_every=100,
-):
-    torch.manual_seed(seed)
-    model = DenseTransformer(
-        vocab_size=stream.vocab_size, d_model=d_model, n_heads=n_heads,
-        n_layers=n_layers, max_seq_len=stream.T, n_hypotheses=stream.K,
-    ).to(device)
-    topmass_head = nn.Linear(d_model, 1).to(device)
-    entropy_head = nn.Linear(d_model, 1).to(device)
-    opt = torch.optim.Adam(
-        list(model.parameters()) + list(topmass_head.parameters()) + list(entropy_head.parameters()),
-        lr=lr,
-    )
-    seed_seq = seed * 13 + 1
-    t0 = time.time()
-    for step in range(n_steps):
-        # fresh batches each step (online generation; streams are cheap)
-        batch_data = make_batch(stream, n=batch, seed=seed_seq + step, device=device)
-        out = model(batch_data["tokens"])
-        hidden = out["hidden"]
-        lm = F.cross_entropy(
-            out["lm_logits"][:, :-1].reshape(-1, stream.vocab_size),
-            batch_data["tokens"][:, 1:].reshape(-1),
-        )
-        log_p = torch.log(out["posterior"] + 1e-8)
-        aux = (batch_data["posterior"] * (
-            torch.log(batch_data["posterior"] + 1e-8) - log_p)).sum(-1).mean()
-        topmass = batch_data["posterior"].max(-1).values
-        topmass_loss = F.mse_loss(topmass_head(hidden).squeeze(-1), topmass)
-        entropy_loss = F.mse_loss(entropy_head(hidden).squeeze(-1), batch_data["entropy"])
-        loss = (
-            lm_weight * lm
-            + aux_weight * aux
-            + topmass_weight * topmass_loss
-            + entropy_weight * entropy_loss
-        )
-        opt.zero_grad(); loss.backward(); opt.step()
-        if step % log_every == 0:
-            mem = (torch.mps.current_allocated_memory() / 1e6
-                   if device == "mps" and hasattr(torch.mps, "current_allocated_memory") else 0)
-            print(f"  step {step:4d}  lm={lm.item():.3f}  aux={aux.item():.4f}  "
-                  f"top={topmass_loss.item():.4f}  ent={entropy_loss.item():.4f}  "
-                  f"loss={loss.item():.3f}  mem={mem:.0f}MB  dt={time.time()-t0:.0f}s")
-    return model
-
-
 def main(
     out_dir="runs/probe-000",
     n_steps=1500, n_train_streams=200, n_test_streams=80,
     device="mps", seed=0, seq_len=128, batch=8,
+    d_model=128, n_layers=4, n_heads=4, lr=5e-4,
     lm_weight=0.1, aux_weight=5.0, topmass_weight=10.0, entropy_weight=3.0,
+    d_conf_weight=0.0, dd_conf_weight=0.0,
 ):
     out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
     stream = BayesianEvidenceStream(
         num_hypotheses=4, num_sources=3, seq_len=seq_len, vocab_size=64, seed=seed,
     )
+    supervision = SupervisionWeights(
+        lm=lm_weight,
+        posterior=aux_weight,
+        topmass=topmass_weight,
+        entropy=entropy_weight,
+        d_conf=d_conf_weight,
+        dd_conf=dd_conf_weight,
+    )
     print(f"=== training backbone on {device} ===")
-    model = train_backbone(stream, n_steps=n_steps, device=device, seed=seed,
-                           batch=batch, lm_weight=lm_weight, aux_weight=aux_weight,
-                           topmass_weight=topmass_weight, entropy_weight=entropy_weight)
-    for p in model.parameters():
+    training_result = train_backbone_with_report(
+        stream,
+        n_steps=n_steps,
+        device=device,
+        seed=seed,
+        batch=batch,
+        d_model=d_model,
+        n_layers=n_layers,
+        n_heads=n_heads,
+        lr=lr,
+        supervision=supervision,
+    )
+    for p in training_result.model.parameters():
         p.requires_grad_(False)  # freeze
     print(f"\n=== running probe experiment (gating experiment #0) ===")
     probe_train_seed_base, probe_test_seed_base = probe_seed_bases(seed)
     res = run_probe_experiment(
-        model, stream, n_train_streams=n_train_streams,
+        training_result.model, stream, n_train_streams=n_train_streams,
         n_test_streams=n_test_streams, seed=seed, device=device,
         probe_train_seed_base=probe_train_seed_base,
         probe_test_seed_base=probe_test_seed_base,
@@ -173,11 +138,25 @@ def main(
         "DERIVATIVE_TEST": fmt(res.derivative),
         "routing": fmt(res.routing),
         "interpretation": asdict(interpretation),
-        "training": {
-            "lm_weight": lm_weight,
-            "aux_weight": aux_weight,
-            "topmass_weight": topmass_weight,
-            "entropy_weight": entropy_weight,
+        "training": supervision.as_report(),
+        "final_auxiliary_losses": training_result.final_losses.as_report(),
+        "stream": {
+            "num_hypotheses": stream.K,
+            "num_sources": stream.S,
+            "seq_len": stream.T,
+            "vocab_size": stream.vocab_size,
+        },
+        "model": {
+            "d_model": d_model,
+            "n_layers": n_layers,
+            "n_heads": n_heads,
+        },
+        "run": {
+            "seed": seed,
+            "n_steps": n_steps,
+            "batch": batch,
+            "lr": lr,
+            "device": device,
         },
     }
     (out / "report.json").write_text(json.dumps(report, indent=2))
