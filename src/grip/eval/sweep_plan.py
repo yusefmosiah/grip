@@ -100,7 +100,7 @@ def default_spec003_plan() -> SweepPlan:
         seq_lens=(512, 1024),
         read_k=(4, 8, 16),
         grip_r=(2, 4),
-        seed_count=5,
+        seed_count=8,
         noise_floor_metric="M-noise-floor",
         min_signal_delta=0.0,
         variants=variants,
@@ -136,8 +136,8 @@ def validate_sweep_plan(plan: SweepPlan) -> None:
     if plan.seq_lens != (512, 1024):
         msg = "seq lengths must include the preregistered 512 and 1024 grid"
         raise SweepPlanError(msg)
-    if plan.seed_count < 5:
-        msg = "seed count must be preregistered at >=5"
+    if plan.seed_count < 8:
+        msg = "seed count must be preregistered at >=8"
         raise SweepPlanError(msg)
     if not plan.noise_floor_metric:
         msg = "noise floor metric must be preregistered"

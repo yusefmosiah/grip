@@ -10,7 +10,7 @@ from grip.analysis.bypass import (
     run_bypass_probe,
 )
 from grip.analysis.run_bypass_002 import BypassRunConfig, run_gate
-from grip.data import BayesianEvidenceStream, StreamSample
+from grip.data import BayesianEvidenceStream, SourceReliabilityReversalStream, StreamSample
 
 
 class TokenLeakStream:
@@ -181,6 +181,7 @@ def test_bypass_probe_reports_gate_decision_for_bayesian_stream():
     # Then: it reports measured metrics and thresholded pass/fail decisions.
     assert result.n_train_positions > 0
     assert result.n_test_positions > 0
+    assert result.answer_acc_threshold == 0.8
     assert isinstance(result.d_conf_passed, bool)
     assert isinstance(result.answer_passed, bool)
     assert result.passed == (result.d_conf_passed and result.answer_passed)
@@ -211,9 +212,78 @@ def test_bypass_runner_writes_report(tmp_path):
     assert report["gate"] == "M-legibility"
     assert (tmp_path / "report.json").exists()
     assert report["probe_config"]["n_train_streams"] == 4
-    assert "d_conf_r2" in report["metrics"]
+    assert set(report["metrics"]) == {"T0-bayesian-evidence-streams", "T1-source-reliability-reversal"}
+    assert "d_conf_r2" in report["metrics"]["T0-bayesian-evidence-streams"]
+    assert "d_conf_r2" in report["metrics"]["T1-source-reliability-reversal"]
     assert set(report["thresholds"]) == {"d_conf_r2_threshold", "answer_acc_threshold"}
     assert set(report["decision"]) == {"d_conf_passed", "answer_passed", "passed"}
     assert report["decision"]["passed"] == (
         report["decision"]["d_conf_passed"] and report["decision"]["answer_passed"]
     )
+
+
+def test_bypass_runner_writes_t0_and_t1_reports(tmp_path):
+    # Given: a tiny M-legibility run configuration.
+    config = BypassRunConfig(
+        out_dir=str(tmp_path),
+        seq_len=24,
+        num_hypotheses=2,
+        num_sources=1,
+        vocab_size=12,
+        probe=BypassProbeConfig(
+            n_train_streams=4,
+            n_test_streams=2,
+            train_seed_base=10,
+            test_seed_base=20,
+            window=3,
+            probe_epochs=2,
+        ),
+    )
+
+    # When: the runner executes the bypass gate.
+    report = run_gate(config)
+
+    # Then: both T0 and T1 have independent legibility reports.
+    assert set(report["tasks"]) == {"T0-bayesian-evidence-streams", "T1-source-reliability-reversal"}
+    assert (tmp_path / "T0-bayesian-evidence-streams-report.json").exists()
+    assert (tmp_path / "T1-source-reliability-reversal-report.json").exists()
+
+
+def test_t1_reversal_stream_passes_bypass_gate_after_leakage_hardening():
+    # Given: the lead T1 source-reliability reversal task.
+    stream = SourceReliabilityReversalStream(seq_len=48, seed=7)
+    config = BypassProbeConfig(
+        n_train_streams=24,
+        n_test_streams=12,
+        train_seed_base=1_000,
+        test_seed_base=2_000,
+        window=4,
+        probe_epochs=40,
+        answer_acc_threshold=0.45,
+    )
+
+    # When: the raw-token bypass gate is run on T1.
+    result = run_bypass_probe(stream, config)
+
+    # Then: T1 is held to the same M-legibility standard as T0.
+    assert result.passed
+
+
+def test_t1_reversal_stream_passes_bypass_gate_across_preregistered_seed_count():
+    # Given: the lead T1 task under the default M-legibility gate.
+    config = BypassProbeConfig()
+
+    # When: the first preregistered eight stream seeds are checked.
+    results = [
+        run_bypass_probe(SourceReliabilityReversalStream(seq_len=128, seed=seed), config)
+        for seed in range(8)
+    ]
+
+    # Then: leakage hardening is not dependent on one favorable stream seed.
+    assert all(result.passed for result in results)
+    assert {result.answer_acc_threshold for result in results} == {0.4}
+    assert max(result.answer_accuracy for result in results) <= max(
+        result.answer_acc_threshold
+        for result in results
+    )
+    assert max(result.d_conf_r2 for result in results) <= config.d_conf_r2_threshold

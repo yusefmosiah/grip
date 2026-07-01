@@ -18,16 +18,12 @@ class SourceReliabilityReversalStream:
             raise ValueError(msg)
         self.T = seq_len
         self.seed = seed
+        rng = np.random.default_rng(seed)
         info_vocab = self.vocab_size - 1
-        likelihood = np.full(
-            (info_vocab, self.K),
-            0.30 / (info_vocab - 1),
-            dtype=np.float64,
-        )
-        for hyp in range(self.K):
-            likelihood[hyp, hyp] = 0.70
-        self._likelihood = likelihood
-        self._marginal = likelihood.mean(axis=1)
+        eps = rng.normal(0.0, 0.55, size=(info_vocab, self.K))
+        likelihood = np.exp(eps)
+        self._likelihood = likelihood / likelihood.sum(axis=0, keepdims=True)
+        self._marginal = self._likelihood.mean(axis=1)
 
     def generate(self, seed: int | None = None) -> StreamSample:
         sample_seed = self.seed if seed is None else seed
@@ -45,7 +41,10 @@ class SourceReliabilityReversalStream:
             6,
             (self.T // 3) + int(schedule_code % max(1, self.T // 12)),
         )
-        early_candidate_steps = list(range(1, min(reversal_step, 6)))
+        early_start = max(1, self.T // 8)
+        if early_start >= reversal_step:
+            early_start = 1
+        early_candidate_steps = list(range(early_start, min(reversal_step, early_start + 5)))
         pre_source_probs = np.full(self.S, (1.0 - 0.35) / (self.S - 1))
         pre_source_probs[reversal_source] = 0.35
         post_source_probs = np.full(self.S, (1.0 - 0.08) / (self.S - 1))
@@ -63,7 +62,7 @@ class SourceReliabilityReversalStream:
             if t >= reversal_step:
                 trust[reversal_source] = low
             source_trust[t] = trust
-            if t == 0 or t in early_candidate_steps:
+            if t in early_candidate_steps:
                 src = reversal_source
             elif t < reversal_step:
                 src = int(rng.choice(self.S, p=pre_source_probs))
@@ -71,9 +70,7 @@ class SourceReliabilityReversalStream:
                 src = int(rng.choice(self.S, p=post_source_probs))
             source_idx[t] = src
             informative = t in early_candidate_steps or rng.random() < trust[src]
-            if t == 0 or t in early_candidate_steps:
-                tok = h_star + 1
-            elif informative:
+            if informative:
                 tok_dist = self._likelihood[:, h_star]
                 tok = int(rng.choice(self.vocab_size - 1, p=tok_dist)) + 1
             else:

@@ -5,11 +5,12 @@ selection, where block importance is scored by query-attending-to-compressed-
 block-summaries (the NSA/DSA selection surface). This is the baseline grip
 augments.
 
-IMPLEMENTATION ROUTE (decided in the M1 reconciliation):
-  Prefer FlexAttention + BlockMask on the MPS path (PyTorch 2.13+ has a
-  [Prototype] MPS FlexAttention backend — verified). Fall back to pure-PyTorch
-  gather only where the mask shape is unsupported. Do NOT use Triton.
-  Smoke-test the exact mask shape before depending on FlexAttention-MPS.
+IMPLEMENTATION ROUTE:
+  Local training must use pure PyTorch gather/masks or SDPA. Do NOT use Triton.
+  Do NOT assume FlexAttention trains on MPS: the research notes found the
+  current PyTorch FlexAttention path raises for MPS backward when inputs require
+  gradients. Treat FlexAttention as CUDA/cloud-only unless a local smoke test
+  proves the exact training mask works.
 
 The grip-augmented variants (grip_read, grip_select) subclass this and change
 ONLY the selection scoring. See GLOSSARY.md: the intervention surface is

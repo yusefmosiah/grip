@@ -30,6 +30,45 @@ def test_reversal_stream_marks_early_decisive_source_that_later_reverses():
     assert sample.answer == int(sample.posterior[-1].argmax())
 
 
+def test_reversal_stream_does_not_force_answer_token_at_early_decisive_steps():
+    # Given: many focused T1 samples with early decisive source evidence.
+    stream = SourceReliabilityReversalStream(seq_len=96, seed=3)
+    samples = [stream.generate(seed=seed) for seed in range(80)]
+
+    # When: the early decisive source positions are inspected.
+    forced_pairs = [
+        (int(sample.tokens[t]), int(sample.answer) + 1)
+        for sample in samples
+        for t in sample.metadata["early_decisive_steps"]
+    ]
+
+    # Then: early evidence is sampled from the likelihood, not usually forced to encode the label.
+    assert forced_pairs
+    forced_rate = sum(
+        token == answer_token
+        for token, answer_token in forced_pairs
+    ) / len(forced_pairs)
+    assert forced_rate < 0.25
+
+
+def test_reversal_stream_keeps_decisive_evidence_outside_initial_prefix():
+    # Given: the lead T1 task and a local-prefix bypass window.
+    stream = SourceReliabilityReversalStream(seq_len=96, seed=3)
+    samples = [stream.generate(seed=seed) for seed in range(24)]
+    prefix_window = 8
+
+    # When: early decisive source-evidence positions are inspected.
+    first_decisive_steps = [
+        min(sample.metadata["early_decisive_steps"])
+        for sample in samples
+        if sample.metadata["early_decisive_steps"]
+    ]
+
+    # Then: the initial token prefix cannot trivially carry the decisive evidence.
+    assert first_decisive_steps
+    assert min(first_decisive_steps) >= prefix_window
+
+
 def test_reversal_stream_posterior_update_uses_source_reliability():
     # Given: a focused source-reliability reversal stream and sample.
     stream = SourceReliabilityReversalStream(seq_len=96, seed=3)

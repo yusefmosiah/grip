@@ -14,8 +14,8 @@ routing. Linear readability is what a selector head would cheaply exploit.
 """
 from __future__ import annotations
 from dataclasses import dataclass
+import warnings
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -51,9 +51,10 @@ def _flat_probe(
 ) -> tuple[float, float]:
     """Fit linear hid->tgt on is_train positions, eval MSE & R^2 on the rest.
     Targets standardized using TRAIN stats; metrics reported in original units."""
-    hid = hid.to(device).float()
-    tgt = tgt.to(device).to(torch.float32)
-    is_train = is_train.to(device=device, dtype=torch.bool)
+    _warn_if_legacy_probe_args_used(n_epochs=n_epochs, lr=lr, device=device)
+    hid = hid.detach().cpu().to(torch.float64)
+    tgt = tgt.detach().cpu().to(torch.float64)
+    is_train = is_train.detach().cpu().to(dtype=torch.bool)
     n_train = int(is_train.sum().item())
     n_test = int((~is_train).sum().item())
     if n_train == 0 or n_test == 0:
@@ -63,20 +64,43 @@ def _flat_probe(
     y_mean = tgt[is_train].mean(0, keepdim=True)
     y_std = tgt[is_train].std(0, keepdim=True).clamp_min(1e-6)
     Yn = (tgt - y_mean) / y_std
-    probe = nn.Linear(hid.shape[-1], tgt.shape[-1]).to(device)
-    opt = torch.optim.Adam(probe.parameters(), lr=lr, weight_decay=wd)
-    for _ in range(n_epochs):
-        pred = probe(hid[is_train])
-        loss = F.mse_loss(pred, Yn[is_train])
-        opt.zero_grad(); loss.backward(); opt.step()
+    x = torch.cat(
+        [hid, torch.ones((hid.shape[0], 1), dtype=hid.dtype, device=hid.device)],
+        dim=1,
+    )
+    x_train = x[is_train]
+    y_train = Yn[is_train]
+    eye = torch.eye(x.shape[1], dtype=x.dtype, device=x.device)
+    weights = torch.linalg.solve(
+        x_train.T @ x_train + wd * eye,
+        x_train.T @ y_train,
+    )
     with torch.no_grad():
-        pred = probe(hid[~is_train]) * y_std + y_mean
+        pred = (x[~is_train] @ weights) * y_std + y_mean
         truth = tgt[~is_train]
-        mse = F.mse_loss(pred, truth).item()
+        mse = F.mse_loss(pred.to(torch.float32), truth.to(torch.float32)).item()
         ss_res = ((truth - pred) ** 2).sum()
         ss_tot = ((truth - truth.mean()) ** 2).sum()
         r2 = float(1.0 - ss_res / ss_tot) if ss_tot.item() > 0 else 0.0
     return mse, r2
+
+
+def _warn_if_legacy_probe_args_used(n_epochs: int, lr: float, device: str) -> None:
+    legacy_args = []
+    if n_epochs != 300:
+        legacy_args.append("n_epochs")
+    if lr != 5e-3:
+        legacy_args.append("lr")
+    if device != "cpu":
+        legacy_args.append("device")
+    if not legacy_args:
+        return
+    names = ", ".join(legacy_args)
+    warnings.warn(
+        f"linear probe now uses closed-form CPU ridge; ignored compatibility args: {names}",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 def linear_probe(

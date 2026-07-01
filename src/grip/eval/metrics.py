@@ -88,24 +88,33 @@ def mutual_info_discrete(x: torch.Tensor, y: torch.Tensor) -> float:
 
 
 def decisive_token_recall(
-    selected_blocks: torch.Tensor, decisive_idx: torch.Tensor
+    selected_blocks: torch.Tensor,
+    decisive_idx: torch.Tensor,
+    position_block_ids: torch.Tensor,
 ) -> float:
     """Fraction of decisive-evidence positions whose block was selected.
 
     selected_blocks: [B, T, top_k] long — block id selected per query position.
     decisive_idx:    [B, T] long/bool — 1 where step t is a decisive step.
+    position_block_ids: [T] or [B, T] long — true block id for each position.
     A decisive step "recalled" if its own block id is in the selected set at t.
     """
-    B, T, Ksel = selected_blocks.shape
-    # block id of each position = floor(t / block_size); but we don't know block_size
-    # here, so infer it from block id max + shape. Cleaner: caller passes block ids
-    # per position. We approximate by treating each position's block as the set
-    # membership test directly.
-    own_block = torch.arange(T, device=selected_blocks.device).unsqueeze(0)
-    own_block = own_block.expand(B, T)  # placeholder; see note
-    # membership: is own_block[b,t] in selected_blocks[b,t,:]?
-    sel = selected_blocks  # [B,T,Ksel]
-    hits = (sel == own_block.unsqueeze(-1)).any(dim=-1)  # [B,T]
+    batch_size, seq_len, _ = selected_blocks.shape
+    if decisive_idx.shape != (batch_size, seq_len):
+        msg = "decisive_idx must have shape [B, T]"
+        raise ValueError(msg)
+    if position_block_ids.ndim == 1:
+        if position_block_ids.shape != (seq_len,):
+            msg = "1D position_block_ids must have shape [T]"
+            raise ValueError(msg)
+        own_block = position_block_ids.unsqueeze(0).expand(batch_size, seq_len)
+    elif position_block_ids.shape == (batch_size, seq_len):
+        own_block = position_block_ids
+    else:
+        msg = "position_block_ids must have shape [T] or [B, T]"
+        raise ValueError(msg)
+    own_block = own_block.to(device=selected_blocks.device, dtype=selected_blocks.dtype)
+    hits = (selected_blocks == own_block.unsqueeze(-1)).any(dim=-1)
     decisive_mask = decisive_idx.bool()
     if not decisive_mask.any():
         return 0.0

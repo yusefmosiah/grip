@@ -39,7 +39,7 @@ def test_default_spec003_plan_contains_core_ablation_matrix():
     assert plan.lead_task == "T1-source-reliability-reversal"
     assert plan.read_k == (4, 8, 16)
     assert plan.grip_r == (2, 4)
-    assert plan.seed_count >= 5
+    assert plan.seed_count >= 8
 
 
 def test_validate_sweep_plan_rejects_missing_variant():

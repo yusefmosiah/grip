@@ -88,3 +88,22 @@ def test_mutual_info_discrete_empty_is_zero():
 def test_mutual_info_discrete_rejects_length_mismatch():
     with pytest.raises(ValueError, match="equal length"):
         M.mutual_info_discrete(torch.tensor([0, 1]), torch.tensor([0]))
+
+
+def test_decisive_token_recall_uses_explicit_position_block_ids():
+    selected_blocks = torch.tensor([[[0, 1], [0, 1], [2, 3], [1, 3]]])
+    decisive_idx = torch.tensor([[0, 1, 1, 1]])
+    position_block_ids = torch.tensor([0, 0, 2, 2])
+
+    recall = M.decisive_token_recall(selected_blocks, decisive_idx, position_block_ids)
+
+    assert abs(recall - (2.0 / 3.0)) < 1e-6
+
+
+def test_decisive_token_recall_rejects_missing_position_block_shape():
+    selected_blocks = torch.zeros((1, 2, 1), dtype=torch.long)
+    decisive_idx = torch.zeros((1, 2), dtype=torch.long)
+    position_block_ids = torch.zeros((3,), dtype=torch.long)
+
+    with pytest.raises(ValueError, match="position_block_ids"):
+        M.decisive_token_recall(selected_blocks, decisive_idx, position_block_ids)

@@ -28,7 +28,8 @@ class BypassProbeConfig:
     window: int = 8
     probe_epochs: int = 300
     d_conf_r2_threshold: float = 0.05
-    answer_acc_threshold: float = 0.80
+    answer_acc_threshold: float | None = None
+    answer_acc_chance_multiplier: float = 1.6
     ridge: float = 1e-3
 
 
@@ -90,7 +91,7 @@ def collect_bypass_dataset(stream: StreamLike, config: BypassProbeConfig) -> Byp
     for sample_idx, sample in enumerate(samples):
         natural_len = int(sample.metadata["natural_len"])
         is_train_stream = sample_idx < config.n_train_streams
-        answer_features.append(_sequence_features(sample, stream.vocab_size))
+        answer_features.append(_answer_leak_features(sample, stream.vocab_size, config.window))
         answers.append(int(sample.answer))
         train_stream_mask.append(is_train_stream)
         for t in range(1, natural_len):
@@ -126,8 +127,9 @@ def run_bypass_probe(
     d_conf_mse = float(F.mse_loss(pred, truth).item())
     d_conf_r2 = r2_score(pred, truth)
     answer_accuracy = _answer_accuracy(dataset, cfg, device)
+    answer_acc_threshold = _answer_accuracy_threshold(dataset.num_classes, cfg)
     d_conf_passed = d_conf_r2 <= cfg.d_conf_r2_threshold
-    answer_passed = answer_accuracy <= cfg.answer_acc_threshold
+    answer_passed = answer_accuracy <= answer_acc_threshold
     return BypassProbeResult(
         d_conf_mse=d_conf_mse,
         d_conf_r2=d_conf_r2,
@@ -138,7 +140,7 @@ def run_bypass_probe(
         n_test_streams=cfg.n_test_streams,
         window=cfg.window,
         d_conf_r2_threshold=cfg.d_conf_r2_threshold,
-        answer_acc_threshold=cfg.answer_acc_threshold,
+        answer_acc_threshold=answer_acc_threshold,
         train_seed_base=cfg.train_seed_base,
         test_seed_base=cfg.test_seed_base,
         d_conf_passed=d_conf_passed,
@@ -154,6 +156,12 @@ def _validate_config(config: BypassProbeConfig) -> None:
     if config.window < 1:
         msg = "bypass probe window must be positive"
         raise BypassProbeConfigError(msg)
+    if config.answer_acc_threshold is not None and config.answer_acc_threshold <= 0.0:
+        msg = "answer accuracy threshold must be positive when provided"
+        raise BypassProbeConfigError(msg)
+    if config.answer_acc_chance_multiplier <= 0.0:
+        msg = "answer accuracy chance multiplier must be positive"
+        raise BypassProbeConfigError(msg)
     train_start = config.train_seed_base
     train_stop = config.train_seed_base + config.n_train_streams
     test_start = config.test_seed_base
@@ -161,6 +169,13 @@ def _validate_config(config: BypassProbeConfig) -> None:
     if max(train_start, test_start) < min(train_stop, test_stop):
         msg = "train and test seed ranges must be disjoint"
         raise BypassProbeConfigError(msg)
+
+
+def _answer_accuracy_threshold(num_classes: int, config: BypassProbeConfig) -> float:
+    if config.answer_acc_threshold is not None:
+        return config.answer_acc_threshold
+    chance = 1.0 / float(num_classes)
+    return min(1.0, config.answer_acc_chance_multiplier * chance)
 
 
 def _window_features(
@@ -179,10 +194,11 @@ def _window_features(
     return feature.reshape(-1)
 
 
-def _sequence_features(sample: StreamSample, vocab_size: int) -> torch.Tensor:
+def _answer_leak_features(sample: StreamSample, vocab_size: int, window: int) -> torch.Tensor:
     natural_len = int(sample.metadata["natural_len"])
-    feature = torch.zeros(sample.tokens.shape[0], vocab_size, dtype=torch.float32)
-    tokens = torch.as_tensor(sample.tokens[:natural_len], dtype=torch.long)
+    feature_len = min(window, natural_len)
+    feature = torch.zeros(window, vocab_size, dtype=torch.float32)
+    tokens = torch.as_tensor(sample.tokens[:feature_len], dtype=torch.long)
     for idx, tok in enumerate(tokens.tolist()):
         feature[idx, int(tok)] = 1.0
     return feature.reshape(-1)

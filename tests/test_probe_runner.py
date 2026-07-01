@@ -1,4 +1,7 @@
-from grip.analysis.probe import ProbeExperimentResult, ProbeResult, run_probe_experiment
+import torch
+import pytest
+
+from grip.analysis.probe import ProbeExperimentResult, ProbeResult, linear_probe, run_probe_experiment
 from grip.analysis.run_probe_000 import (
     PROBE_TEST_SEED_BASE,
     PROBE_TRAIN_SEED_BASE,
@@ -103,6 +106,43 @@ def test_probe_experiment_accepts_disjoint_probe_seed_ranges():
 
     assert result.probe_train_seed_base == 10_000_000
     assert result.probe_test_seed_base == 20_000_000
+
+
+def test_linear_probe_uses_closed_form_ridge_solution():
+    # Given: a target that is exactly linear in hidden features.
+    hidden = torch.tensor(
+        [
+            [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
+            [[1.0, 1.0], [2.0, 1.0], [1.0, 2.0]],
+        ],
+        dtype=torch.float32,
+    )
+    target = 2.0 * hidden[..., 0] - 3.0 * hidden[..., 1] + 0.5
+    train_mask = torch.ones(target.shape, dtype=torch.bool)
+    train_mask[0, 2] = False
+    train_mask[1, 1] = False
+
+    # When: the linear probe is fit with zero epochs.
+    result = linear_probe(hidden, target, "linear", train_mask, n_epochs=0)
+
+    # Then: the closed-form fit succeeds without optimizer training.
+    assert result.r2 > 0.99
+    assert result.mse < 1e-4
+
+
+def test_linear_probe_accepts_mps_device_request_without_mps_float64():
+    # Given: a CPU tensor and an MPS device request from the default runner path.
+    hidden = torch.tensor([[[0.0, 0.0], [1.0, 0.0]], [[0.0, 1.0], [1.0, 1.0]]])
+    target = hidden[..., 0] + hidden[..., 1]
+    train_mask = torch.tensor([[True, True], [False, False]])
+
+    # When: the closed-form probe is fit with device="mps".
+    with pytest.warns(DeprecationWarning, match="closed-form CPU ridge"):
+        result = linear_probe(hidden, target, "linear", train_mask, n_epochs=0, device="mps")
+
+    # Then: solving happens on a supported dtype/device path.
+    assert result.n_train == 2
+    assert result.n_test == 2
 
 
 def test_default_runner_probe_seed_ranges_do_not_overlap_training_ranges():
