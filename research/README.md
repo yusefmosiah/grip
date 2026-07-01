@@ -33,6 +33,9 @@ Read in this order:
 14. `M_REGIME_SCALE_G019.md` - a reversal seq-32/64 scale map through the
     module CLI; aggregate reports still pivot, so Grip A/B remains
     unauthorized.
+15. `M_REGIME_HELDOUT_G021.md` - the heldout-eval rerun that supersedes the
+    G017/G019 decision records; all cells still pivot, so Grip A/B remains
+    unauthorized.
 
 The load-bearing experiment remains `grip-read (A)` vs `grip-select (B)` from
 `SPEC-003`. The mechanism docs do not change the milestone order:
