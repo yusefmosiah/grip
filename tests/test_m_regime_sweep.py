@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from grip.eval.m_regime_sweep import MRegimeSweepConfig, run_m_regime_sweep
+from grip.eval.m_regime_sweep import MRegimeSweepConfig, main, run_m_regime_sweep
 
 
 def test_m_regime_sweep_writes_summary_and_aggregate_reports(tmp_path: Path) -> None:
@@ -29,6 +29,27 @@ def test_m_regime_sweep_writes_summary_and_aggregate_reports(tmp_path: Path) -> 
     assert result.aggregate.tasks[0].decision.authorize_avsb is False
 
 
+def test_m_regime_sweep_cli_prints_aggregate_summary_path(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Given: a tiny output directory for the reusable sweep CLI.
+    out_dir = tmp_path / "cli-sweep"
+
+    # When: the CLI executes the default calibrated Bayesian sweep.
+    exit_code = main([str(out_dir)])
+
+    # Then: it prints the aggregate-summary path and writes the expected artifacts.
+    assert exit_code == 0
+    printed = capsys.readouterr().out.strip()
+    assert printed == str(out_dir / "aggregate" / "aggregate-summary.json")
+    assert (out_dir / "noise-floor" / "noise-floor.json").exists()
+    assert (out_dir / "summary.json").exists()
+    assert Path(printed).exists()
+    payload = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
+    assert len(payload["bayesian"]["rows"]) == 8
+
+
 def test_m_regime_sweep_rejects_reversal_shape_before_artifacts(tmp_path: Path) -> None:
     # Given: an invalid reversal sweep shape.
     config = MRegimeSweepConfig(
@@ -43,3 +64,14 @@ def test_m_regime_sweep_rejects_reversal_shape_before_artifacts(tmp_path: Path) 
     with pytest.raises(ValueError, match="seq_len"):
         run_m_regime_sweep(config)
     assert not config.out_dir.exists()
+
+
+def test_m_regime_sweep_cli_rejects_seed_count_before_artifacts(tmp_path: Path) -> None:
+    # Given: an output directory and a seed count below the M-noise-floor floor.
+    out_dir = tmp_path / "cli-sweep"
+
+    # When / Then: argparse rejects it before domain execution writes artifacts.
+    with pytest.raises(SystemExit) as exc_info:
+        main([str(out_dir), "--seed-count", "7"])
+    assert exc_info.value.code == 2
+    assert not out_dir.exists()

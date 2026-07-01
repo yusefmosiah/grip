@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import TypeAlias
+from typing import Sequence, TypeAlias
 
 from .aggregate_summary import AggregateSummaryResult, aggregate_summary_file
 from .headroom import MRegimeConfig, MRegimeResult, run_m_regime_smoke
@@ -146,3 +147,52 @@ def _summary_payload(
             "rows": list(rows),
         },
     }
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("out_dir", type=Path)
+    parser.add_argument("--task", choices=("bayesian", "reversal"), default="bayesian")
+    parser.add_argument("--seed-count", type=int, default=MIN_NOISE_FLOOR_SEEDS)
+    parser.add_argument("--seq-len", type=int, default=8)
+    parser.add_argument("--vocab-size", type=int, default=17)
+    parser.add_argument("--d-model", type=int, default=16)
+    parser.add_argument("--n-heads", type=int, default=4)
+    parser.add_argument("--n-layers", type=int, default=1)
+    parser.add_argument("--n-hypotheses", type=int, default=3)
+    parser.add_argument("--block-size", type=int, default=2)
+    parser.add_argument("--top-k-blocks", type=int, default=3)
+    parser.add_argument("--window", type=int, default=2)
+    parser.add_argument("--train-steps", type=int, default=0)
+    parser.add_argument("--train-batch-size", type=int, default=1)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--device", default="cpu")
+    args = parser.parse_args(argv)
+    if args.seed_count < MIN_NOISE_FLOOR_SEEDS:
+        parser.error(f"--seed-count must be at least {MIN_NOISE_FLOOR_SEEDS}")
+    result = run_m_regime_sweep(
+        MRegimeSweepConfig(
+            out_dir=args.out_dir,
+            task=args.task,
+            seed_ids=tuple(range(args.seed_count)),
+            seq_len=args.seq_len,
+            vocab_size=args.vocab_size,
+            d_model=args.d_model,
+            n_heads=args.n_heads,
+            n_layers=args.n_layers,
+            n_hypotheses=args.n_hypotheses,
+            block_size=args.block_size,
+            top_k_blocks=args.top_k_blocks,
+            window=args.window,
+            train_steps=args.train_steps,
+            train_batch_size=args.train_batch_size,
+            lr=args.lr,
+            device=args.device,
+        )
+    )
+    print(result.aggregate.report_path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
