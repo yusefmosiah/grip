@@ -36,6 +36,8 @@ Read in this order:
 15. `M_REGIME_HELDOUT_G021.md` - the heldout-eval rerun that supersedes the
     G017/G019 decision records; all cells still pivot, so Grip A/B remains
     unauthorized.
+16. `M_REGIME_EVALBATCH_G022.md` - an eval-batch-8 stability check on the two
+    closest heldout cells; both still pivot, so Grip A/B remains unauthorized.
 
 The load-bearing experiment remains `grip-read (A)` vs `grip-select (B)` from
 `SPEC-003`. The mechanism docs do not change the milestone order:
