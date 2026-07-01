@@ -12,4 +12,5 @@ state of a vanilla model, or is it absent (the amnesia claim)?
 
 This bifurcates the entire downstream architecture. Run before building anything.
 """
+from .bypass import BypassProbeConfig, BypassProbeResult, run_bypass_probe  # noqa: F401
 from .probe import linear_probe, ProbeResult  # noqa: F401
