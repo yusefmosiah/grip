@@ -22,6 +22,33 @@ def test_m_regime_sweep_writes_summary_and_aggregate_reports(tmp_path: Path) -> 
     assert result.aggregate.report_path == config.out_dir / "aggregate" / "aggregate-summary.json"
     assert result.aggregate.report_path.exists()
     payload = json.loads(result.summary_path.read_text(encoding="utf-8"))
+    assert payload["bayesian"]["config"] == {
+        "data": {
+            "seq_len": 8,
+            "task": "bayesian",
+            "vocab_size": 17,
+        },
+        "eval": {
+            "batch_size": 1,
+            "seed_offset": 10_000,
+        },
+        "model": {
+            "d_model": 16,
+            "n_heads": 4,
+            "n_hypotheses": 3,
+            "n_layers": 1,
+        },
+        "sparse": {
+            "block_size": 2,
+            "top_k_blocks": 3,
+            "window": 2,
+        },
+        "train": {
+            "batch_size": 1,
+            "lr": 1e-3,
+            "steps": 0,
+        },
+    }
     rows = payload["bayesian"]["rows"]
     assert len(rows) == 8
     assert all(row["interpretable"] is True for row in rows)

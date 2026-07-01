@@ -70,10 +70,7 @@ def calibrate_noise_floor(config: NoiseFloorCalibrationConfig) -> NoiseFloorCali
         pairs.append({"left": str(left_dir), "right": str(right_dir)})
         for metric in config.metric_names:
             metric_deltas[metric].append(_pair_delta(left_dir, right_dir, metric))
-    parsed_deltas = {
-        metric: tuple(float(delta) for delta in deltas)
-        for metric, deltas in metric_deltas.items()
-    }
+    parsed_deltas = {metric: tuple(float(delta) for delta in deltas) for metric, deltas in metric_deltas.items()}
     metric_ceilings = {
         metric: max(abs(delta) for delta in deltas)
         for metric, deltas in parsed_deltas.items()
@@ -199,11 +196,36 @@ def _artifact_payload(
     return {
         "calibration": {
             "baseline_names": list(BASELINE_NAMES),
+            "data": {
+                "seq_len": config.seq_len,
+                "task": config.task,
+                "vocab_size": config.vocab_size,
+            },
             "device": config.device,
+            "eval": {
+                "batch_size": config.eval_batch_size,
+                "seed_offset": config.eval_seed_offset,
+            },
             "eval_batch_size": config.eval_batch_size,
             "eval_seed_offset": config.eval_seed_offset,
+            "model": {
+                "d_model": config.d_model,
+                "n_heads": config.n_heads,
+                "n_hypotheses": config.n_hypotheses,
+                "n_layers": config.n_layers,
+            },
             "minimum_signal_floor": config.minimum_signal_floor,
+            "sparse": {
+                "block_size": config.block_size,
+                "top_k_blocks": config.top_k_blocks,
+                "window": config.window,
+            },
             "task": config.task,
+            "train": {
+                "batch_size": config.train_batch_size,
+                "lr": config.lr,
+                "steps": config.train_steps,
+            },
             "train_batch_size": config.train_batch_size,
             "train_steps": config.train_steps,
         },

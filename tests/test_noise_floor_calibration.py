@@ -32,6 +32,31 @@ def test_calibrate_noise_floor_writes_scorer_loadable_loss_artifact(tmp_path: Pa
         abs(delta) for delta in artifact.metric_deltas["loss"]
     )
     assert artifact.minimum_signal_threshold["loss"] == 1e-6
+    assert raw_artifact["calibration"]["data"] == {
+        "seq_len": 8,
+        "task": "bayesian",
+        "vocab_size": 17,
+    }
+    assert raw_artifact["calibration"]["eval"] == {
+        "batch_size": 1,
+        "seed_offset": 10_000,
+    }
+    assert raw_artifact["calibration"]["model"] == {
+        "d_model": 16,
+        "n_heads": 4,
+        "n_hypotheses": 3,
+        "n_layers": 1,
+    }
+    assert raw_artifact["calibration"]["sparse"] == {
+        "block_size": 2,
+        "top_k_blocks": 3,
+        "window": 2,
+    }
+    assert raw_artifact["calibration"]["train"] == {
+        "batch_size": 1,
+        "lr": 1e-3,
+        "steps": 0,
+    }
     assert raw_artifact["calibration"]["minimum_signal_floor"] == 1e-6
     assert raw_artifact["calibration"]["eval_batch_size"] == 1
     assert raw_artifact["calibration"]["eval_seed_offset"] == 10_000
