@@ -18,6 +18,7 @@ Read in this order:
 5. `MECHANISM_INGREDIENTS.md` - the current attention/mechanism inventory.
 6. `OPEN_MODEL_MECHANISMS.md` - current open-model mechanisms worth borrowing.
 7. `ADAPTER_STRATEGY.md` - how to import, copy, adapt, or defer external code.
+8. `CODEX_DELEGATION_PLAN.md` - the autonomous work queue and commit boundaries.
 
 The load-bearing experiment remains `grip-read (A)` vs `grip-select (B)` from
 `SPEC-003`. The mechanism docs do not change the milestone order:
@@ -25,5 +26,7 @@ M-legibility, M-probe, M-regime, then M-avsb.
 
 Current M-probe evidence supports the "add state" branch: derivative-supervised
 backbones kept level probes readable while `d_conf`/`dd_conf` probes remained
-near baseline across three seeds. Treat OLMo-Hybrid-style explicit state as the
-default design reference until a stronger contrary probe result appears.
+near baseline across three seeds in the current local seq-128 robustness run.
+Treat OLMo-Hybrid-style explicit state as the default design reference until a
+stronger contrary probe result appears. Do not treat that seq-128 run as the
+full seq-512/1024 preregistered sweep evidence.

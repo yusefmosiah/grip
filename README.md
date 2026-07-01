@@ -47,10 +47,13 @@ that, in a form it can attend over and select with.
 
 ## Status
 
-**Research phase — pre-experiment.** No model code, no results yet. The
-immediate work is finishing a critical review of the program's source material
-and reconciling a feasibility study of the local compute (an M1 Mac, 16 GB),
-after which the lab gets configured and the first gating experiment runs.
+**Research phase — gated implementation.** The data, dense baseline, probe,
+bypass, metric, and sweep-contract surfaces are in place. The first probe gate
+has supportive evidence for the add-state branch: derivative-supervised dense
+backbones kept level probes readable while `d_conf`/`dd_conf` remained near
+baseline in the current local seq-128 robustness run. That evidence is enough
+to guide the next implementation branch, but it is not a substitute for the
+full preregistered M-regime and A-vs-B sweeps.
 
 The decision criteria for the program (keep / pivot / kill) are defined and
 live in the source documents; they govern the sequence of events. There is no
@@ -59,21 +62,13 @@ the one before.
 
 ## What lives here (eventually)
 
-- `research/` — program notes, source-document integration, literature map.
+- `research/` — specs, mechanism inventory, source integration, delegation plan.
 - `src/grip/` — data generators, models, training, evaluation, analysis.
 - `configs/`, `scripts/`, `tests/` — reproducibility.
 - `runs/`, `reports/` — outputs (gitignored).
 
-This README will be rewritten from scratch once the research is integrated.
-
-## Source documents (pending integration)
-
-The material that informs this program currently lives as three external
-drafts (a kickoff brief, the research program, and a fork/setup plan). They are
-being critically reviewed and will be consolidated into fresh `research/` docs
-before any code is written. They are **not** committed to this repo in their
-current form — they carry a superseded schedule and a prior working name
-("heed"/"HEED") that we are excising.
+See `research/README.md` for the current contract order and the active
+autonomous work queue.
 
 ## License
 
