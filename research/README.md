@@ -21,6 +21,8 @@ Read in this order:
 8. `CODEX_DELEGATION_PLAN.md` - the autonomous work queue and commit boundaries.
 9. `M_REGIME_PIVOT_G008.md` - the first headroom-gate decision and the next
    corrective trained-M-regime slice.
+10. `M_REGIME_TRAINED_G010.md` - the minimal trained Bayesian M-regime result;
+    still pivots, so Grip A/B remains unauthorized.
 
 The load-bearing experiment remains `grip-read (A)` vs `grip-select (B)` from
 `SPEC-003`. The mechanism docs do not change the milestone order:
