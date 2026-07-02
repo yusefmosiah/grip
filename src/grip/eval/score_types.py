@@ -32,6 +32,7 @@ class NoiseFloorError(ValueError):
 class RunScore:
     run_dir: Path
     metrics: Mapping[str, float]
+    compute: Mapping[str, float | int | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,18 +54,26 @@ class ComparisonReport:
     interpretable: bool
     reason: str
     noise_floor: NoiseFloorArtifact | None
+    compute_tolerance: float = 0.05
     config_mismatches: tuple[str, ...] = ()
+    compute_mismatches: tuple[str, ...] = ()
     validity_failures: tuple[str, ...] = ()
 
     def to_json_text(self) -> str:
         payload = {
             "interpretable": self.interpretable,
             "config_mismatches": list(self.config_mismatches),
+            "compute_mismatches": list(self.compute_mismatches),
+            "compute_tolerance": self.compute_tolerance,
             "validity_failures": list(self.validity_failures),
             "noise_floor": _noise_floor_payload(self.noise_floor),
             "reason": self.reason,
             "runs": [
-                {"metrics": dict(run.metrics), "run_dir": str(run.run_dir)}
+                {
+                    "compute": dict(run.compute),
+                    "metrics": dict(run.metrics),
+                    "run_dir": str(run.run_dir),
+                }
                 for run in self.runs
             ],
         }

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Final, Mapping, Sequence
 
 from .noise_floor import is_number, load_noise_floor
+from .compute import compute_mismatches, run_compute
 from .m_regime_validity import noise_floor_validity, run_validity
 from .score_types import (
     ComparisonReport,
@@ -23,6 +24,7 @@ from .score_types import (
 
 
 BOOKKEEPING_METRICS: Final = frozenset({"tokens"})
+DEFAULT_COMPUTE_TOLERANCE: Final = 0.05
 
 
 def score_run(run_dir: Path) -> RunScore:
@@ -41,7 +43,7 @@ def score_run(run_dir: Path) -> RunScore:
         if not is_number(value):
             raise ScoreArtifactError(metrics_path, f"metric {name!r} must be numeric")
         metrics[name] = float(value)
-    return RunScore(run_dir=run_dir, metrics=metrics)
+    return RunScore(run_dir=run_dir, metrics=metrics, compute=run_compute(run_dir))
 
 
 def write_metrics(run_dir: Path, metrics: Mapping[str, int | float]) -> Path:
@@ -73,10 +75,14 @@ def compare(
     noise_floor_path: Path | None = None,
     *,
     preregistered: bool = False,
+    compute_tolerance: float = DEFAULT_COMPUTE_TOLERANCE,
 ) -> ComparisonReport:
     if not runs:
         raise ScoreArtifactError(Path("comparison.json"), "at least one run is required")
+    if compute_tolerance < 0:
+        raise ScoreArtifactError(Path("comparison.json"), "compute_tolerance must be non-negative")
     scores = tuple(score_run(run_dir) for run_dir in runs)
+    compute_mismatch_fields = compute_mismatches(scores, compute_tolerance)
     noise_floor: NoiseFloorArtifact | None = None
     interpretable = False
     reason = "noise_floor_missing"
@@ -92,6 +98,8 @@ def compare(
                 reason = "below_minimum_validity"
             elif missing_metrics:
                 reason = "noise_floor_missing_metric"
+            elif compute_mismatch_fields:
+                reason = "compute_mismatch"
             else:
                 interpretable = preregistered
                 reason = "ok" if preregistered else "comparison_not_preregistered"
@@ -107,7 +115,9 @@ def compare(
         interpretable=interpretable,
         reason=reason,
         noise_floor=noise_floor,
+        compute_tolerance=compute_tolerance,
         config_mismatches=config_mismatches,
+        compute_mismatches=compute_mismatch_fields,
         validity_failures=validity_failures,
     )
     comparison_path = runs[0].parent / "comparison.json"

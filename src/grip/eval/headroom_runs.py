@@ -9,6 +9,7 @@ import torch.nn.functional as F
 
 from grip.models import ContentSparseTransformer, DenseTransformer
 
+from .compute import compute_budget, compute_payload
 from .headroom_training import BatchTensors, TrainingLoopConfig, TrainingTokenBatch, train_model
 from .headroom_types import BaselineSpec, HeadroomConfigError, MRegimeConfig, ResolvedJson
 from .m_regime_validity import run_tier, run_validity
@@ -62,6 +63,7 @@ def _write_baseline(
             out["lm_logits"][:, :-1].reshape(-1, config.vocab_size),
             eval_tokens[:, 1:].reshape(-1),
         )
+    compute = compute_budget(model, eval_tokens, read_budget=spec.read_budget)
     if spec.attention_mode is not None and spec.read_budget is not None:
         write_selection_diagnostics(
             run_dir / "selection_diagnostics.json",
@@ -84,6 +86,7 @@ def _write_baseline(
                 "seed": eval_seed,
                 "seed_offset": config.eval_seed_offset,
                 "tokens": float(eval_tokens.numel()),
+                "compute": compute_payload(compute),
             },
             indent=2,
             sort_keys=True,
