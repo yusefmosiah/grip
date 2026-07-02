@@ -280,8 +280,8 @@ redundant flat/nested duplicate keys in `_artifact_payload`.
 derivation (~40 lines) — extract a shared helper.
 
 ### P3.3 Kill dead code / wire promised code
-**Status.** PARTIAL across `41cf47d`, `2ab3bd4`, `eae3bba`, `4abcb92`, and
-`d576f1f`: baseline naming now has one source of truth via
+**Status.** DONE across `41cf47d`, `2ab3bd4`, `eae3bba`, `4abcb92`,
+`d576f1f`, and `4bc2b6e`: baseline naming now has one source of truth via
 `headroom_baselines.py`, shared by noise-floor artifacts, calibration,
 headroom run generation, and SPEC-003 sweep-plan runnable baseline variants;
 stream-level `block_boundaries` were removed so configured model/eval
@@ -289,10 +289,9 @@ stream-level `block_boundaries` were removed so configured model/eval
 SPEC-003 sweep matrix as declaration-only and rejects artifacts that claim
 runner-consumable status; headroom runs now write report-only posterior
 accuracy/NLL/Brier/ECE and source-answer MI metrics without making them
-noise-floor gate requirements.
-Remaining bullets below are still open.
-- `configs/` promises "one YAML per run template" with zero YAMLs and no
-  loader — add the loader + one config per run type, or amend the README.
+noise-floor gate requirements; and `configs/_README.md` now describes the
+future YAML-template contract without claiming executable YAML templates or a
+YAML loader already exist.
 
 ### P3.4 Model output typing
 `forward` returning `dict[str, Tensor | SparseMetadata | None]` invites key
