@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from .headroom import MRegimeConfig, run_m_regime_smoke
+from .headroom_baselines import BASELINE_NAMES
 from .headroom_training import TRAINING_SEED_STRIDE
 from .noise_floor import MIN_NOISE_FLOOR_SEEDS, load_noise_floor
-from .noise_floor_artifact import BASELINE_NAMES, noise_floor_payload
+from .noise_floor_artifact import noise_floor_payload
 from .noise_floor_calibration_types import NoiseFloorCalibrationConfig
 from .score import score_run
 from .score_types import JsonValue

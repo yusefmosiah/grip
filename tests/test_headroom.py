@@ -7,6 +7,7 @@ import pytest
 import torch
 
 import grip.eval.headroom_runs as headroom_runs
+from grip.eval.headroom_baselines import baseline_specs
 from grip.eval.headroom import MRegimeConfig, run_m_regime_smoke
 from grip.eval.headroom_types import BaselineSpec
 from grip.eval.noise_floor_artifact import BASELINE_NAMES, attach_noise_floor_content_hash
@@ -14,6 +15,16 @@ from grip.models import ContentSparseTransformer, DenseTransformer
 
 
 BaselineModel = DenseTransformer | ContentSparseTransformer
+
+
+def test_baseline_names_match_generated_headroom_specs() -> None:
+    # Given: the shared M-regime baseline registry.
+    specs = baseline_specs(read_budget=7)
+
+    # Then: noise-floor compatibility names cannot drift from generated runs.
+    assert tuple(spec.name for spec in specs) == BASELINE_NAMES
+    assert specs[0].read_budget is None
+    assert all(spec.read_budget == 7 for spec in specs[1:])
 
 
 def _write_noise_floor(

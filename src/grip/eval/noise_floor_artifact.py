@@ -4,19 +4,12 @@ import hashlib
 import json
 from typing import TYPE_CHECKING, Mapping, Sequence
 
+from .headroom_baselines import BASELINE_NAMES
 from .score_types import JsonValue
 
 if TYPE_CHECKING:
     from .noise_floor_calibration_types import NoiseFloorCalibrationConfig
 
-
-BASELINE_NAMES: tuple[str, ...] = (
-    "dense",
-    "local",
-    "content-sparse",
-    "grip-read-A",
-    "grip-select-B",
-)
 
 NOISE_FLOOR_CONTENT_HASH_VERSION = "noise-floor-authority-v1"
 

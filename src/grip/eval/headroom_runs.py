@@ -8,6 +8,7 @@ import torch
 from grip.models import ContentSparseTransformer, DenseTransformer
 
 from .compute import compute_budget, compute_payload
+from .headroom_baselines import baseline_specs
 from .headroom_training import BatchTensors, TrainingLoopConfig, TrainingTokenBatch, next_token_loss, train_model
 from .headroom_types import BaselineSpec, HeadroomConfigError, MRegimeConfig, ResolvedJson
 from .m_regime_validity import run_tier, run_validity
@@ -21,17 +22,7 @@ def write_baselines(
 ) -> tuple[Path, ...]:
     return tuple(
         _write_baseline(config, spec, train_batches, eval_batch)
-        for spec in _baseline_specs(config)
-    )
-
-
-def _baseline_specs(config: MRegimeConfig) -> tuple[BaselineSpec, ...]:
-    return (
-        BaselineSpec("dense", None, None),
-        BaselineSpec("local", "local", config.top_k_blocks),
-        BaselineSpec("content-sparse", "content_sparse", config.top_k_blocks),
-        BaselineSpec("grip-read-A", "grip_read", config.top_k_blocks),
-        BaselineSpec("grip-select-B", "grip_select", config.top_k_blocks),
+        for spec in baseline_specs(config.top_k_blocks)
     )
 
 
