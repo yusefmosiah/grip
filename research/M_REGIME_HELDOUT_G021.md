@@ -102,3 +102,13 @@ none, and seq 64 has one.
 Grip A/B remains unauthorized. The next implementation work should improve the
 M-regime data/training surface or introduce a stronger dense-vs-sparse
 diagnostic before any Grip state enters selection.
+
+## Spec Freeze
+
+This decision was audited against these spec blobs:
+
+- `SPEC-000-derivative-probe.md`: `8d88bfc3821f0e5f4cf54ce92ad622011daa2d62`
+- `SPEC-001-tasks-and-data.md`: `2aab6a0078d2922087fcf5c57456d065d012aef9`
+- `SPEC-002-eval-protocol.md`: `5658bc4327c74b913aa5d8983fa1a4140499f326`
+- `SPEC-002-AMENDMENT-001.md`: `37cbd50a59e2c79206dd2519ccaa5ed4ebb12b48`
+- `SPEC-003-ablations-and-sweeps.md`: `b0e6f1331e87e4550c656e4204dc96ac79bb0f8d`

@@ -64,8 +64,18 @@ G011. It does not change the research decision:
 2. Reversal has possible headroom on a minority of seeds, but the effect is not
    seed-stable.
 3. Seed-level `keep` is not the same thing as program-level authorization. The
-   program still lacks a preregistered aggregate keep criterion.
+   program still lacks a dated aggregate keep criterion.
 
 Next work should define and implement an aggregate M-regime decision rule across
 seeds before any Grip A/B branch begins. Until that rule exists and passes,
 Grip A/B remains unauthorized.
+
+## Spec Freeze
+
+This decision was audited against these spec blobs:
+
+- `SPEC-000-derivative-probe.md`: `8d88bfc3821f0e5f4cf54ce92ad622011daa2d62`
+- `SPEC-001-tasks-and-data.md`: `2aab6a0078d2922087fcf5c57456d065d012aef9`
+- `SPEC-002-eval-protocol.md`: `5658bc4327c74b913aa5d8983fa1a4140499f326`
+- `SPEC-002-AMENDMENT-001.md`: `37cbd50a59e2c79206dd2519ccaa5ed4ebb12b48`
+- `SPEC-003-ablations-and-sweeps.md`: `b0e6f1331e87e4550c656e4204dc96ac79bb0f8d`

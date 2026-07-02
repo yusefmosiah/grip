@@ -78,8 +78,24 @@ Aggregate result:
 The reusable runner reproduces the G013 scientific result while removing the ad
 hoc script from the critical path. The calibrated Bayesian sweep has no
 content-sparse-underperforms-dense headroom. The reversal sweep has minority
-seed-level headroom, but it fails the preregistered aggregate keep-rate gate.
+seed-level headroom, but it fails the pre-declared aggregate keep-rate gate.
 
 Grip A/B remains unauthorized. The next implementation work should improve or
 scale the M-regime baselines, not add Grip state or run `grip-read` versus
 `grip-select`.
+
+## Erratum: Terminology
+
+Earlier wording in this record described the aggregate keep-rate gate as
+"preregistered." The gate was introduced mid-program in G014 and should be read
+as a dated pre-declared rule, not as a rule fixed before the G017 data existed.
+
+## Spec Freeze
+
+This decision was audited against these spec blobs:
+
+- `SPEC-000-derivative-probe.md`: `8d88bfc3821f0e5f4cf54ce92ad622011daa2d62`
+- `SPEC-001-tasks-and-data.md`: `2aab6a0078d2922087fcf5c57456d065d012aef9`
+- `SPEC-002-eval-protocol.md`: `5658bc4327c74b913aa5d8983fa1a4140499f326`
+- `SPEC-002-AMENDMENT-001.md`: `37cbd50a59e2c79206dd2519ccaa5ed4ebb12b48`
+- `SPEC-003-ablations-and-sweeps.md`: `b0e6f1331e87e4550c656e4204dc96ac79bb0f8d`
