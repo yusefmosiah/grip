@@ -11,13 +11,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .outputs import SparseModelOutput
 from .sparse_components import (
     CausalBlockSummaries,
     LocalBlockConfig,
     LocalCausalBlock,
     SparseAttentionMode,
     SparseConfigError,
-    SparseMetadata,
     causal_block_scores,
     causal_block_summaries,
     current_blocks,
@@ -130,8 +130,7 @@ class ContentSparseTransformer(nn.Module):
         self,
         tokens: torch.Tensor,
         real_mask: torch.Tensor | None = None,
-    ) -> dict[str, torch.Tensor | SparseMetadata | None]:
-        """-> dict with 'lm_logits','posterior','hidden', and 'selected_blocks'[B,T,top_k]."""
+    ) -> SparseModelOutput:
         batch_size, seq_len = tokens.shape
         if seq_len > self.max_seq_len:
             raise SparseConfigError("tokens", "sequence length exceeds max_seq_len")
@@ -163,21 +162,21 @@ class ContentSparseTransformer(nn.Module):
             selection_scores,
             selected_blocks,
         )
-        return {
-            "lm_logits": self.lm_head(hidden),
-            "posterior": F.softmax(self.aux_posterior(hidden), dim=-1),
-            "hidden": hidden,
-            "selected_blocks": selected_blocks,
-            "selection_scores": selection_scores,
-            "metadata": {
+        return SparseModelOutput(
+            lm_logits=self.lm_head(hidden),
+            posterior=F.softmax(self.aux_posterior(hidden), dim=-1),
+            hidden=hidden,
+            selected_blocks=selected_blocks,
+            selection_scores=selection_scores,
+            metadata={
                 "attention_mode": self.attention_mode.value,
                 "block_size": self.block_size,
                 "read_budget": self.top_k_blocks,
                 "window": self.window,
             },
-            "grip_state": grip_state if exposes_grip else None,
-            "grip_recon": self.grip_recon(grip_state) if exposes_grip else None,
-        }
+            grip_state=grip_state if exposes_grip else None,
+            grip_recon=self.grip_recon(grip_state) if exposes_grip else None,
+        )
 
     def _select_blocks(
         self,

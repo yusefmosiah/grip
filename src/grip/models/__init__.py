@@ -10,5 +10,6 @@ Order of implementation (mirrors the milestone DAG, not a calendar):
 The A-vs-B comparison at matched params and matched read budget is the
 load-bearing experiment. See GLOSSARY.md and research/SPEC-003-ablations-and-sweeps.md.
 """
-from .dense import DenseTransformer          # noqa: F401
+from .dense import DenseTransformer  # noqa: F401
+from .outputs import DenseModelOutput, ModelOutput, SparseModelOutput  # noqa: F401
 from .sparse import ContentSparseTransformer  # noqa: F401

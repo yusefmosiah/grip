@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 
 from grip.models import DenseTransformer
+from grip.models.outputs import DenseModelOutput
 from grip.data import BayesianEvidenceStream, make_batch
 
 
@@ -25,16 +26,17 @@ def test_forward_shapes():
     batch = make_batch(stream, n=4)
     out = model(batch["tokens"])
     B, T = batch["tokens"].shape
-    assert out["lm_logits"].shape == (B, T, stream.vocab_size)
-    assert out["posterior"].shape == (B, T, stream.K)
-    assert out["hidden"].shape == (B, T, 64)
+    assert isinstance(out, DenseModelOutput)
+    assert out.lm_logits.shape == (B, T, stream.vocab_size)
+    assert out.posterior.shape == (B, T, stream.K)
+    assert out.hidden.shape == (B, T, 64)
 
 
 def test_posterior_is_simplex():
     stream = BayesianEvidenceStream(num_hypotheses=4, seq_len=64, vocab_size=32, seed=0)
     model = _tiny_model(stream)
     batch = make_batch(stream, n=2)
-    post = model(batch["tokens"])["posterior"]
+    post = model(batch["tokens"]).posterior
     assert torch.allclose(post.sum(-1), torch.ones(post.shape[:-1]), atol=1e-5)
 
 
@@ -53,8 +55,8 @@ def test_dense_masked_padding_matches_unpadded_prefix():
     real_mask = torch.tensor([[True, True, True, True, False, False]])
 
     with torch.no_grad():
-        prefix_out = model(prefix)["hidden"]
-        padded_out = model(padded, real_mask=real_mask)["hidden"][:, :4]
+        prefix_out = model(prefix).hidden
+        padded_out = model(padded, real_mask=real_mask).hidden[:, :4]
 
     assert torch.allclose(padded_out, prefix_out, atol=1e-6)
 
@@ -66,8 +68,23 @@ def test_runs_on_mps_if_available():
     model = _tiny_model(stream).to("mps")
     batch = make_batch(stream, n=2, device="mps")
     out = model(batch["tokens"])
-    assert out["hidden"].device.type == "mps"
-    assert torch.isfinite(out["lm_logits"]).all()
+    assert out.hidden.device.type == "mps"
+    assert torch.isfinite(out.lm_logits).all()
+
+
+def test_dense_rejects_sequences_beyond_max_len() -> None:
+    model = DenseTransformer(
+        vocab_size=8,
+        d_model=16,
+        n_heads=2,
+        n_layers=1,
+        max_seq_len=4,
+        n_hypotheses=2,
+    )
+    tokens = torch.ones((1, 5), dtype=torch.long)
+
+    with pytest.raises(ValueError, match="max_seq_len"):
+        model(tokens)
 
 
 def test_overfit_one_batch():
@@ -86,11 +103,11 @@ def test_overfit_one_batch():
     for step in range(400):
         out = model(batch["tokens"])
         lm = F.cross_entropy(
-            out["lm_logits"][:, :-1].reshape(-1, stream.vocab_size),
+            out.lm_logits[:, :-1].reshape(-1, stream.vocab_size),
             target_tokens[:, 1:].reshape(-1),
         )
         # KL from model posterior to ground-truth posterior (aux supervision)
-        log_p = torch.log(out["posterior"] + 1e-8)
+        log_p = torch.log(out.posterior + 1e-8)
         aux = (target_post * (torch.log(target_post + 1e-8) - log_p)).sum(-1).mean()
         loss = lm + 0.1 * aux
         if initial_loss is None:

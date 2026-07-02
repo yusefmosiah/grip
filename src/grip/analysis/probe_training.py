@@ -176,12 +176,12 @@ def train_backbone_with_report(
     for step in range(n_steps):
         batch_data = make_batch(stream, n=batch, seed=seed_seq + step, device=device)
         out = model(batch_data["tokens"])
-        hidden = out["hidden"]
+        hidden = out.hidden
         lm = F.cross_entropy(
-            out["lm_logits"][:, :-1].reshape(-1, stream.vocab_size),
+            out.lm_logits[:, :-1].reshape(-1, stream.vocab_size),
             batch_data["tokens"][:, 1:].reshape(-1),
         )
-        log_p = torch.log(out["posterior"] + 1e-8)
+        log_p = torch.log(out.posterior + 1e-8)
         aux = (batch_data["posterior"] * (
             torch.log(batch_data["posterior"] + 1e-8) - log_p)).sum(-1).mean()
         auxiliary_loss, final_losses = _auxiliary_loss(hidden, batch_data, heads, weights)

@@ -157,7 +157,7 @@ def train_model(
     for step, batch in enumerate(batches, start=1):
         out = model(batch.tokens, real_mask=batch.real_mask)
         loss = next_token_loss(
-            logits=out["lm_logits"],
+            logits=out.lm_logits,
             tokens=batch.tokens,
             real_mask=batch.real_mask,
             vocab_size=config.vocab_size,

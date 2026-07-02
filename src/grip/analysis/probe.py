@@ -173,7 +173,7 @@ def run_probe_experiment(
             for i in range(n_streams):
                 s = stream.generate(seed=base_seed + i)
                 tok = torch.as_tensor(s.tokens).long().unsqueeze(0).to(device)
-                h = backbone(tok)["hidden"][0].cpu()  # [T,d]
+                h = backbone(tok).hidden[0].cpu()  # [T,d]
                 Hs.append(h)
                 topmass.append(torch.as_tensor(s.posterior.max(1), dtype=torch.float32))
                 entropy.append(torch.as_tensor(s.entropy, dtype=torch.float32))

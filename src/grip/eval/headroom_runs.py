@@ -6,7 +6,7 @@ from typing import Mapping
 
 import torch
 from grip.models import ContentSparseTransformer, DenseTransformer
-from grip.models.sparse_components import SparseMetadata
+from grip.models.outputs import ModelOutput, SparseModelOutput
 
 from .compute import compute_budget, compute_payload
 from .headroom_baselines import baseline_specs
@@ -52,7 +52,7 @@ def _write_baseline(
     with torch.no_grad():
         out = model(eval_tokens, real_mask=eval_real_mask)
         loss = next_token_loss(
-            logits=out["lm_logits"],
+            logits=out.lm_logits,
             tokens=eval_tokens,
             real_mask=eval_real_mask,
             vocab_size=config.vocab_size,
@@ -60,9 +60,11 @@ def _write_baseline(
         metric_payload = _metric_payload(out, eval_batch, eval_real_mask, loss)
     compute = compute_budget(model, eval_tokens, read_budget=spec.read_budget)
     if spec.attention_mode is not None and spec.read_budget is not None:
+        if not isinstance(out, SparseModelOutput):
+            raise HeadroomConfigError("model_output", "sparse diagnostics require sparse output")
         write_selection_diagnostics(
             run_dir / "selection_diagnostics.json",
-            selected_blocks=out["selected_blocks"],
+            selected_blocks=out.selected_blocks,
             decisive_idx=eval_batch["decisive_idx"],
             attention_mode=spec.attention_mode,
             block_size=config.block_size,
@@ -101,12 +103,12 @@ def _write_baseline(
 
 
 def _metric_payload(
-    model_output: Mapping[str, torch.Tensor | SparseMetadata | None],
+    model_output: ModelOutput,
     eval_batch: BatchTensors,
     real_mask: torch.Tensor,
     loss: torch.Tensor,
 ) -> Mapping[str, float]:
-    posterior = _tensor_field(model_output, "posterior")
+    posterior = model_output.posterior
     last_real = real_mask.to(dtype=torch.long).sum(dim=1).clamp_min(1) - 1
     batch_idx = torch.arange(posterior.shape[0], device=posterior.device)
     final_probs = posterior[batch_idx, last_real].clamp_min(1e-8)
@@ -125,16 +127,6 @@ def _metric_payload(
         "source_answer_mi": mutual_info_discrete(real_source_idx, real_answers),
         "tokens": float(eval_batch["tokens"].numel()),
     }
-
-
-def _tensor_field(
-    payload: Mapping[str, torch.Tensor | SparseMetadata | None],
-    field: str,
-) -> torch.Tensor:
-    value = payload[field]
-    if not isinstance(value, torch.Tensor):
-        raise HeadroomConfigError(field, "must be a tensor")
-    return value
 
 
 def _build_seeded_model(

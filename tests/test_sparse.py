@@ -1,8 +1,11 @@
+from dataclasses import fields
+
 import pytest
 import torch
 import torch.nn.functional as F
 
 from grip.models import ContentSparseTransformer
+from grip.models.outputs import SparseModelOutput
 from grip.models.sparse_components import CausalBlockSummaries
 
 
@@ -34,7 +37,8 @@ def test_sparse_forward_returns_trace_contract() -> None:
         out = model(tokens)
 
     # Then: every sparse/grip trace field has the agreed shape and placeholder state.
-    assert set(out) == {
+    assert isinstance(out, SparseModelOutput)
+    assert {field.name for field in fields(out)} == {
         "lm_logits",
         "posterior",
         "hidden",
@@ -44,20 +48,20 @@ def test_sparse_forward_returns_trace_contract() -> None:
         "grip_state",
         "grip_recon",
     }
-    assert out["lm_logits"].shape == (2, 8, 17)
-    assert out["posterior"].shape == (2, 8, 3)
-    assert out["hidden"].shape == (2, 8, 16)
-    assert out["selected_blocks"].shape == (2, 8, 3)
-    assert out["selection_scores"].shape == (2, 8, 4)
-    assert out["metadata"] == {
+    assert out.lm_logits.shape == (2, 8, 17)
+    assert out.posterior.shape == (2, 8, 3)
+    assert out.hidden.shape == (2, 8, 16)
+    assert out.selected_blocks.shape == (2, 8, 3)
+    assert out.selection_scores.shape == (2, 8, 4)
+    assert out.metadata == {
         "attention_mode": "content_sparse",
         "block_size": 2,
         "read_budget": 3,
         "window": 2,
     }
-    assert out["grip_state"] is None
-    assert out["grip_recon"] is None
-    assert torch.allclose(out["posterior"].sum(-1), torch.ones(2, 8), atol=1e-6)
+    assert out.grip_state is None
+    assert out.grip_recon is None
+    assert torch.allclose(out.posterior.sum(-1), torch.ones(2, 8), atol=1e-6)
 
 
 def test_grip_variants_return_explicit_state() -> None:
@@ -72,12 +76,16 @@ def test_grip_variants_return_explicit_state() -> None:
         select_out = select_model(tokens)
 
     # Then: both expose explicit grip state and reconstruction tensors.
-    assert read_out["metadata"]["attention_mode"] == "grip_read"
-    assert select_out["metadata"]["attention_mode"] == "grip_select"
-    assert read_out["grip_state"].shape == (1, 8, 16)
-    assert read_out["grip_recon"].shape == (1, 8, 2)
-    assert select_out["grip_state"].shape == (1, 8, 16)
-    assert select_out["grip_recon"].shape == (1, 8, 2)
+    assert read_out.metadata["attention_mode"] == "grip_read"
+    assert select_out.metadata["attention_mode"] == "grip_select"
+    assert read_out.grip_state is not None
+    assert read_out.grip_recon is not None
+    assert select_out.grip_state is not None
+    assert select_out.grip_recon is not None
+    assert read_out.grip_state.shape == (1, 8, 16)
+    assert read_out.grip_recon.shape == (1, 8, 2)
+    assert select_out.grip_state.shape == (1, 8, 16)
+    assert select_out.grip_recon.shape == (1, 8, 2)
 
 
 def test_grip_read_uses_content_selection_like_content_sparse() -> None:
@@ -94,8 +102,8 @@ def test_grip_read_uses_content_selection_like_content_sparse() -> None:
         read_out = read_model(tokens)
 
     # Then: Grip A changes the read state, not the selector.
-    assert torch.equal(content_out["selection_scores"], read_out["selection_scores"])
-    assert torch.equal(content_out["selected_blocks"], read_out["selected_blocks"])
+    assert torch.equal(content_out.selection_scores, read_out.selection_scores)
+    assert torch.equal(content_out.selected_blocks, read_out.selected_blocks)
 
 
 def test_sparse_selection_is_causal_at_block_transitions() -> None:
@@ -109,8 +117,8 @@ def test_sparse_selection_is_causal_at_block_transitions() -> None:
 
     # Then: selected block ids and finite scores never point into future blocks.
     current_block = torch.arange(8) // 2
-    selected_blocks = out["selected_blocks"][0]
-    selection_scores = out["selection_scores"][0]
+    selected_blocks = out.selected_blocks[0]
+    selection_scores = out.selection_scores[0]
     assert torch.all(selected_blocks <= current_block[:, None])
     for token_idx, block_idx in enumerate(current_block.tolist()):
         future_scores = selection_scores[token_idx, block_idx + 1 :]
@@ -131,10 +139,10 @@ def test_sparse_selection_scores_are_prefix_causal_within_current_block() -> Non
         changed_out = model(changed)
 
     # Then: token 0's hidden state and selector scores are unchanged.
-    assert torch.equal(original_out["hidden"][:, 0], changed_out["hidden"][:, 0])
+    assert torch.equal(original_out.hidden[:, 0], changed_out.hidden[:, 0])
     assert torch.equal(
-        original_out["selection_scores"][:, 0],
-        changed_out["selection_scores"][:, 0],
+        original_out.selection_scores[:, 0],
+        changed_out.selection_scores[:, 0],
     )
 
 
@@ -150,8 +158,11 @@ def test_sparse_forward_is_deterministic_in_eval_mode() -> None:
         second = model(tokens)
 
     # Then: all tensor-valued trace fields are exactly repeatable.
-    for key in ("lm_logits", "posterior", "hidden", "selected_blocks", "selection_scores"):
-        assert torch.equal(first[key], second[key])
+    assert torch.equal(first.lm_logits, second.lm_logits)
+    assert torch.equal(first.posterior, second.posterior)
+    assert torch.equal(first.hidden, second.hidden)
+    assert torch.equal(first.selected_blocks, second.selected_blocks)
+    assert torch.equal(first.selection_scores, second.selection_scores)
 
 
 def test_sparse_modes_report_metadata_and_content_sparse_consumes_context() -> None:
@@ -168,10 +179,10 @@ def test_sparse_modes_report_metadata_and_content_sparse_consumes_context() -> N
         content_out = content_model(tokens)
 
     # Then: metadata identifies the mode and content-sparse consumes selected context.
-    assert local_out["metadata"]["attention_mode"] == "local"
-    assert content_out["metadata"]["attention_mode"] == "content_sparse"
-    assert not torch.equal(local_out["hidden"], content_out["hidden"])
-    assert torch.equal(local_out["selected_blocks"], content_out["selected_blocks"])
+    assert local_out.metadata["attention_mode"] == "local"
+    assert content_out.metadata["attention_mode"] == "content_sparse"
+    assert not torch.equal(local_out.hidden, content_out.hidden)
+    assert torch.equal(local_out.selected_blocks, content_out.selected_blocks)
 
 
 def test_content_sparse_selector_scores_receive_loss_gradient() -> None:
@@ -183,7 +194,7 @@ def test_content_sparse_selector_scores_receive_loss_gradient() -> None:
     # When: next-token loss flows through selected sparse context.
     out = model(tokens)
     loss = F.cross_entropy(
-        out["lm_logits"][:, :-1].reshape(-1, model.vocab_size),
+        out.lm_logits[:, :-1].reshape(-1, model.vocab_size),
         tokens[:, 1:].reshape(-1),
     )
     loss.backward()
@@ -204,7 +215,7 @@ def test_grip_read_state_receives_next_token_loss_gradient() -> None:
     # When: next-token loss flows through the Grip read context.
     out = model(tokens)
     loss = F.cross_entropy(
-        out["lm_logits"][:, :-1].reshape(-1, model.vocab_size),
+        out.lm_logits[:, :-1].reshape(-1, model.vocab_size),
         tokens[:, 1:].reshape(-1),
     )
     loss.backward()
@@ -298,9 +309,9 @@ def test_content_sparse_hidden_depends_on_selected_block_ids() -> None:
         current_out = prefer_current(tokens)
 
     # Then: changing only selected block ids changes the consumed-context hidden state.
-    assert oldest_out["selected_blocks"][0, 7, 0].item() == 0
-    assert current_out["selected_blocks"][0, 7, 0].item() == 3
-    assert not torch.equal(oldest_out["hidden"][:, 7], current_out["hidden"][:, 7])
+    assert oldest_out.selected_blocks[0, 7, 0].item() == 0
+    assert current_out.selected_blocks[0, 7, 0].item() == 3
+    assert not torch.equal(oldest_out.hidden[:, 7], current_out.hidden[:, 7])
 
 
 def test_sparse_selection_uses_block_importance_override() -> None:
@@ -333,7 +344,7 @@ def test_sparse_selection_uses_block_importance_override() -> None:
         out = model(tokens)
 
     # Then: top-1 selection follows the override up to the causal boundary.
-    assert torch.equal(out["selected_blocks"][0, :, 0], torch.arange(8) // 2)
+    assert torch.equal(out.selected_blocks[0, :, 0], torch.arange(8) // 2)
 
 
 def test_content_sparse_selection_recovers_decisive_prior_block() -> None:
