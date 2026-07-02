@@ -148,6 +148,10 @@ One dated amendment doc (`SPEC-002-AMENDMENT-001.md`) fixing, with numbers:
   the amendment or replace them with justified ones.
 
 ### P1.2 Terminology and spec-freezing discipline
+**Status.** DONE in `8129232` (G-doc terminology now distinguishes
+mid-program pre-declared rules from preregistration, G017 carries an erratum,
+every M-regime decision doc records the current governing spec blob hashes, and
+`SPEC-003-AMENDMENT-001.md` marks the post-probe add-state update).
 - Stop calling mid-stream rules "preregistered"; use "pre-declared" and date
   them. Audit existing G-docs for the mislabel (G017 at minimum) and add
   errata notes — do not rewrite history.
@@ -157,11 +161,18 @@ One dated amendment doc (`SPEC-002-AMENDMENT-001.md`) fixing, with numbers:
   amendment marker.
 
 ### P1.3 Backfill missing decision docs
+**Status.** DONE in `8129232` (`M_REGIME_AGGREGATE_RULE_G014.md`,
+`M_REGIME_AGGREGATE_SUMMARY_G015.md`, `M_REGIME_RUNNER_G016.md`,
+`M_REGIME_SWEEP_CLI_G018.md`, and `M_REGIME_HELDOUT_FIX_G020.md` were added and
+indexed).
 G014, G015, G016, G018, G020 exist only as commits/run dirs. G020 (the
 `train_tokens[:1]` eval bug that superseded G017/G019) especially needs its
 own record. Short docs are fine; absence is not.
 
 ### P1.4 Name the regime-search conditioning
+**Status.** DONE in `8129232` (`SPEC-003-AMENDMENT-001.md` and
+`research/README.md` now require future A-vs-B claims to be conditioned on the
+searched-for headroom regime and to report the regime-search path).
 Add a standing note (in SPEC-003 amendment or research/README): the headroom
 regime, once found, will have been *selected for*; any A-vs-B claim is
 conditioned on "in a regime constructed to have headroom," and the regime
