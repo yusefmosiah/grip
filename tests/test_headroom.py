@@ -9,6 +9,7 @@ import torch
 import grip.eval.headroom_runs as headroom_runs
 from grip.eval.headroom import MRegimeConfig, run_m_regime_smoke
 from grip.eval.headroom_types import BaselineSpec
+from grip.eval.noise_floor_artifact import BASELINE_NAMES
 from grip.models import ContentSparseTransformer, DenseTransformer
 
 
@@ -24,7 +25,7 @@ def _write_noise_floor(
 ) -> Path:
     payload = {
         "calibration": {
-            "baseline_names": ["dense", "local", "content-sparse"],
+            "baseline_names": list(BASELINE_NAMES),
             "decision": {"seed_count": 1},
             "data": {"seq_len": 8, "task": "bayesian", "vocab_size": 17},
             "device": "cpu",
@@ -57,7 +58,7 @@ def _write_noise_floor(
 def _write_accuracy_only_noise_floor(path: Path) -> Path:
     payload = {
         "calibration": {
-            "baseline_names": ["dense", "local", "content-sparse"],
+            "baseline_names": list(BASELINE_NAMES),
             "decision": {"seed_count": 1},
             "data": {"seq_len": 8, "task": "bayesian", "vocab_size": 17},
             "device": "cpu",
@@ -99,12 +100,12 @@ def test_m_regime_smoke_writes_baseline_artifacts_and_comparison(tmp_path: Path)
     # When: the M-regime smoke gate runs.
     result = run_m_regime_smoke(config)
 
-    # Then: dense/local/content-sparse artifacts exist but remain unciteable smoke.
+    # Then: all declared baseline artifacts exist but remain unciteable smoke.
     assert result.comparison.interpretable is False
     assert result.comparison.reason == "below_minimum_validity"
     assert result.status == "blocked"
     assert result.authorize_avsb is False
-    assert {run.name for run in result.run_dirs} == {"dense", "local", "content-sparse"}
+    assert {run.name for run in result.run_dirs} == set(BASELINE_NAMES)
     comparison = json.loads((config.out_dir / "comparison.json").read_text(encoding="utf-8"))
     assert comparison["interpretable"] is False
     assert comparison["reason"] == "below_minimum_validity"
@@ -159,7 +160,7 @@ def test_m_regime_smoke_records_matched_budget_metadata(tmp_path: Path) -> None:
     # When: the M-regime smoke gate writes baseline artifacts.
     result = run_m_regime_smoke(config)
 
-    # Then: local and content-sparse use the same read budget while dense records none.
+    # Then: sparse and Grip variants use the same read budget while dense records none.
     metadata_by_name = {
         run_dir.name: json.loads((run_dir / "config.resolved.json").read_text(encoding="utf-8"))
         for run_dir in result.run_dirs
@@ -167,8 +168,12 @@ def test_m_regime_smoke_records_matched_budget_metadata(tmp_path: Path) -> None:
     assert metadata_by_name["dense"]["read_budget"] is None
     assert metadata_by_name["local"]["read_budget"] == 2
     assert metadata_by_name["content-sparse"]["read_budget"] == 2
+    assert metadata_by_name["grip-read-A"]["read_budget"] == 2
+    assert metadata_by_name["grip-select-B"]["read_budget"] == 2
     assert metadata_by_name["local"]["model"]["attention_mode"] == "local"
     assert metadata_by_name["content-sparse"]["model"]["attention_mode"] == "content_sparse"
+    assert metadata_by_name["grip-read-A"]["model"]["attention_mode"] == "grip_read"
+    assert metadata_by_name["grip-select-B"]["model"]["attention_mode"] == "grip_select"
 
 
 def test_m_regime_smoke_writes_report_only_selection_diagnostics(tmp_path: Path) -> None:
@@ -198,6 +203,10 @@ def test_m_regime_smoke_writes_report_only_selection_diagnostics(tmp_path: Path)
     assert diagnostics_by_name["content-sparse"]["read_budget"] == 2
     assert isinstance(diagnostics_by_name["content-sparse"]["decisive_token_count"], int)
     assert 0.0 <= diagnostics_by_name["content-sparse"]["decisive_token_recall"] <= 1.0
+    assert diagnostics_by_name["grip-read-A"]["attention_mode"] == "grip_read"
+    assert diagnostics_by_name["grip-read-A"]["selection_consumed"] is True
+    assert diagnostics_by_name["grip-select-B"]["attention_mode"] == "grip_select"
+    assert diagnostics_by_name["grip-select-B"]["selection_consumed"] is True
     assert result.authorize_avsb is False
 
 
@@ -215,7 +224,7 @@ def test_m_regime_smoke_uses_matched_initialization_in_run_path(
         spec: BaselineSpec,
     ) -> BaselineModel:
         model = original_build_model(build_config, spec)
-        if spec.name in {"local", "content-sparse"}:
+        if spec.name in {"local", "content-sparse", "grip-read-A", "grip-select-B"}:
             captured[spec.name] = {
                 key: value.detach().clone()
                 for key, value in model.state_dict().items()
@@ -228,7 +237,7 @@ def test_m_regime_smoke_uses_matched_initialization_in_run_path(
     run_m_regime_smoke(config)
 
     # Then: common parameters start from identical seeded values in that path.
-    assert set(captured) == {"local", "content-sparse"}
+    assert set(captured) == {"local", "content-sparse", "grip-read-A", "grip-select-B"}
     local_state = captured["local"]
     content_sparse_state = captured["content-sparse"]
     shared_keys = local_state.keys() & content_sparse_state.keys()

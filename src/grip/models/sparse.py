@@ -1,22 +1,8 @@
-"""Sparse attention models.
+"""Sparse attention models with pure-PyTorch local/content and Grip A/B paths.
 
-The content-sparse baseline: local sliding window + top-K content-block
-selection, where block importance is scored by query-attending-to-compressed-
-block-summaries (the NSA/DSA selection surface). This is the baseline grip
-augments.
-
-IMPLEMENTATION ROUTE:
-  Local training must use pure PyTorch gather/masks or SDPA. Do NOT use Triton.
-  Do NOT assume FlexAttention trains on MPS: the research notes found the
-  current PyTorch FlexAttention path raises for MPS backward when inputs require
-  gradients. Treat FlexAttention training as CUDA/cloud-only until upstream MPS
-  backward support changes.
-
-The grip-augmented variants (grip_read, grip_select) share an explicit Grip
-state producer/update path. Their causal difference is ONLY whether that state
-enters selection scoring. See GLOSSARY.md: the intervention surface is
-  importance_b = f(q, c_b) + lambda * h(query_grip, grip_b)
-with lambda=0 (variant A) vs lambda>0 (variant B).
+Grip A reads explicit Grip state without using it for selection; Grip B adds
+Grip-state scores to the same selector. FlexAttention/Triton remain out of the
+local MPS training path.
 """
 from __future__ import annotations
 from typing import assert_never
@@ -26,14 +12,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .sparse_components import (
+    CausalBlockSummaries,
     LocalBlockConfig,
     LocalCausalBlock,
     SparseAttentionMode,
     SparseConfigError,
     SparseMetadata,
+    causal_block_scores,
+    causal_block_summaries,
     current_blocks,
     future_block_mask,
     parse_attention_mode,
+    selected_block_context,
 )
 
 
@@ -105,18 +95,36 @@ class ContentSparseTransformer(nn.Module):
         self.norm_f = nn.LayerNorm(d_model)
         self.content_projection = nn.Linear(d_model, d_model)
         self.content_norm = nn.LayerNorm(d_model)
+        self.selector_query = nn.Linear(d_model, d_model, bias=False)
+        self.selector_key = nn.Linear(d_model, d_model, bias=False)
+        self.grip_state_projection = nn.Linear(d_model, d_model)
+        self.grip_query = nn.Linear(d_model, d_model, bias=False)
+        self.grip_key = nn.Linear(d_model, d_model, bias=False)
+        self.grip_recon = nn.Linear(d_model, 2)
+        self.grip_recon_projection = nn.Linear(2, d_model, bias=False)
         self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
         self.lm_head.weight = self.tok.weight
         self.aux_posterior = nn.Linear(d_model, n_hypotheses)
+        self._initialize_selector()
+
+    def _initialize_selector(self) -> None:
+        nn.init.eye_(self.selector_query.weight)
+        nn.init.eye_(self.selector_key.weight)
+        nn.init.eye_(self.grip_query.weight)
+        nn.init.eye_(self.grip_key.weight)
 
     def _block_importance(
         self,
         query: torch.Tensor,
-        block_summaries: torch.Tensor,
+        block_summaries: CausalBlockSummaries,
     ) -> torch.Tensor:
         """Score each block for selection. OVERRIDE POINT for grip variants."""
-        scale = query.shape[-1] ** -0.5
-        return torch.einsum("btd,btnd->btn", query, block_summaries) * scale
+        return causal_block_scores(
+            self.selector_query(query),
+            self.selector_key(block_summaries.full),
+            self.selector_key(block_summaries.current_prefix),
+            block_summaries,
+        )
 
     def forward(self, tokens: torch.Tensor) -> dict[str, torch.Tensor | SparseMetadata | None]:
         """-> dict with 'lm_logits','posterior','hidden', and 'selected_blocks'[B,T,top_k]."""
@@ -128,9 +136,27 @@ class ContentSparseTransformer(nn.Module):
         for block in self.blocks:
             hidden = block(hidden)
         hidden = self.norm_f(hidden)
+        exposes_grip = self._exposes_grip()
+        grip_state = self._grip_state(hidden) if exposes_grip else None
         block_summaries = self._summarize_blocks(hidden)
-        selection_scores, selected_blocks = self._select_blocks(hidden, block_summaries)
-        hidden = self._apply_attention_mode(hidden, block_summaries, selected_blocks)
+        grip_summaries = (
+            self._summarize_blocks(self._grip_read_features(grip_state))
+            if grip_state is not None
+            else None
+        )
+        selection_scores, selected_blocks = self._select_blocks(
+            hidden,
+            block_summaries,
+            grip_state,
+            grip_summaries,
+        )
+        hidden = self._apply_attention_mode(
+            hidden,
+            block_summaries,
+            grip_summaries,
+            selection_scores,
+            selected_blocks,
+        )
         return {
             "lm_logits": self.lm_head(hidden),
             "posterior": F.softmax(self.aux_posterior(hidden), dim=-1),
@@ -143,18 +169,20 @@ class ContentSparseTransformer(nn.Module):
                 "read_budget": self.top_k_blocks,
                 "window": self.window,
             },
-            "grip_state": None,
-            "grip_recon": None,
+            "grip_state": grip_state if exposes_grip else None,
+            "grip_recon": self.grip_recon(grip_state) if exposes_grip else None,
         }
 
     def _select_blocks(
         self,
         hidden: torch.Tensor,
-        block_summaries: torch.Tensor | None = None,
+        block_summaries: CausalBlockSummaries | None = None,
+        grip_state: torch.Tensor | None = None,
+        grip_summaries: CausalBlockSummaries | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if block_summaries is None:
             block_summaries = self._summarize_blocks(hidden)
-        scores = self._block_importance(hidden, block_summaries)
+        scores = self._selection_importance(hidden, block_summaries, grip_state, grip_summaries)
         masked_scores = scores.masked_fill(future_block_mask(hidden, self.block_size), float("-inf"))
         top_k = min(self.top_k_blocks, masked_scores.shape[-1])
         top_scores, top_blocks = torch.topk(masked_scores, k=top_k, dim=-1)
@@ -172,40 +200,69 @@ class ContentSparseTransformer(nn.Module):
     def _apply_attention_mode(
         self,
         hidden: torch.Tensor,
-        block_summaries: torch.Tensor,
+        block_summaries: CausalBlockSummaries,
+        grip_summaries: CausalBlockSummaries | None,
+        selection_scores: torch.Tensor,
         selected_blocks: torch.Tensor,
     ) -> torch.Tensor:
         match self.attention_mode:
             case SparseAttentionMode.LOCAL:
                 return hidden
             case SparseAttentionMode.CONTENT_SPARSE:
-                context = self._selected_context(block_summaries, selected_blocks)
+                context = self._selected_context(block_summaries, selection_scores, selected_blocks)
+                return self.content_norm(hidden + self.content_projection(context))
+            case SparseAttentionMode.GRIP_READ | SparseAttentionMode.GRIP_SELECT:
+                if grip_summaries is None:
+                    raise SparseConfigError("grip_summaries", "required for grip variants")
+                context = self._selected_context(grip_summaries, selection_scores, selected_blocks)
                 return self.content_norm(hidden + self.content_projection(context))
             case unreachable:
                 assert_never(unreachable)
 
+    def _selection_importance(
+        self,
+        hidden: torch.Tensor,
+        block_summaries: CausalBlockSummaries,
+        grip_state: torch.Tensor | None,
+        grip_summaries: CausalBlockSummaries | None,
+    ) -> torch.Tensor:
+        scores = self._block_importance(hidden, block_summaries)
+        if self.attention_mode != SparseAttentionMode.GRIP_SELECT:
+            return scores
+        if grip_state is None:
+            grip_state = self._grip_state(hidden)
+        if grip_summaries is None:
+            grip_summaries = self._summarize_blocks(self._grip_read_features(grip_state))
+        return scores + self._grip_importance(grip_state, grip_summaries)
+
+    def _exposes_grip(self) -> bool:
+        return self.attention_mode in {SparseAttentionMode.GRIP_READ, SparseAttentionMode.GRIP_SELECT}
+
+    def _grip_state(self, hidden: torch.Tensor) -> torch.Tensor:
+        return torch.tanh(self.grip_state_projection(hidden))
+
+    def _grip_read_features(self, grip_state: torch.Tensor) -> torch.Tensor:
+        return grip_state + self.grip_recon_projection(self.grip_recon(grip_state))
+
+    def _grip_importance(
+        self,
+        query_grip: torch.Tensor,
+        grip_summaries: CausalBlockSummaries,
+    ) -> torch.Tensor:
+        return causal_block_scores(
+            self.grip_query(query_grip),
+            self.grip_key(grip_summaries.full),
+            self.grip_key(grip_summaries.current_prefix),
+            grip_summaries,
+        )
+
     def _selected_context(
         self,
-        block_summaries: torch.Tensor,
+        block_summaries: CausalBlockSummaries,
+        selection_scores: torch.Tensor,
         selected_blocks: torch.Tensor,
     ) -> torch.Tensor:
-        channels = block_summaries.shape[-1]
-        gather_index = selected_blocks[..., None].expand(-1, -1, -1, channels)
-        selected = torch.gather(block_summaries, dim=2, index=gather_index)
-        return selected.mean(dim=2)
+        return selected_block_context(block_summaries, selection_scores, selected_blocks)
 
-    def _summarize_blocks(self, hidden: torch.Tensor) -> torch.Tensor:
-        seq_len = hidden.shape[1]
-        num_blocks = (seq_len + self.block_size - 1) // self.block_size
-        positions = torch.arange(seq_len, device=hidden.device)
-        block_ids = positions // self.block_size
-        summary_block_ids = torch.arange(num_blocks, device=hidden.device)
-        key_positions = positions.reshape(1, 1, seq_len)
-        query_positions = positions.reshape(seq_len, 1, 1)
-        key_blocks = block_ids.reshape(1, 1, seq_len)
-        summary_blocks = summary_block_ids.reshape(1, num_blocks, 1)
-        include = (key_positions <= query_positions) & (key_blocks == summary_blocks)
-        weights = include.to(hidden.dtype)
-        totals = torch.einsum("bkd,qnk->bqnd", hidden, weights)
-        counts = weights.sum(dim=-1).clamp_min(1).reshape(1, seq_len, num_blocks, 1)
-        return totals / counts
+    def _summarize_blocks(self, hidden: torch.Tensor) -> CausalBlockSummaries:
+        return causal_block_summaries(hidden, self.block_size)

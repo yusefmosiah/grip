@@ -31,6 +31,8 @@ def _baseline_specs(config: MRegimeConfig) -> tuple[BaselineSpec, ...]:
         BaselineSpec("dense", None, None),
         BaselineSpec("local", "local", config.top_k_blocks),
         BaselineSpec("content-sparse", "content_sparse", config.top_k_blocks),
+        BaselineSpec("grip-read-A", "grip_read", config.top_k_blocks),
+        BaselineSpec("grip-select-B", "grip_select", config.top_k_blocks),
     )
 
 

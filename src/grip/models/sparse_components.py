@@ -21,6 +21,8 @@ class SparseConfigError(ValueError):
 class SparseAttentionMode(StrEnum):
     LOCAL = "local"
     CONTENT_SPARSE = "content_sparse"
+    GRIP_READ = "grip_read"
+    GRIP_SELECT = "grip_select"
 
 
 class SparseMetadata(TypedDict):
@@ -28,6 +30,13 @@ class SparseMetadata(TypedDict):
     block_size: int
     read_budget: int
     window: int
+
+
+@dataclass(frozen=True, slots=True)
+class CausalBlockSummaries:
+    full: torch.Tensor
+    current_prefix: torch.Tensor
+    token_blocks: torch.Tensor
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,8 +104,62 @@ def future_block_mask(hidden: torch.Tensor, block_size: int) -> torch.Tensor:
     return block_ids.reshape(1, 1, num_blocks) > query_blocks[..., None]
 
 
+def causal_block_summaries(hidden: torch.Tensor, block_size: int) -> CausalBlockSummaries:
+    batch_size, seq_len, channels = hidden.shape
+    num_blocks = (seq_len + block_size - 1) // block_size
+    positions = torch.arange(seq_len, device=hidden.device)
+    block_ids = positions // block_size
+    block_totals = hidden.new_zeros(batch_size, num_blocks, channels)
+    block_totals.index_add_(1, block_ids, hidden)
+    block_counts = torch.bincount(block_ids, minlength=num_blocks).to(hidden.dtype).clamp_min(1)
+    full = block_totals / block_counts.reshape(1, num_blocks, 1)
+    prefix_totals = hidden.cumsum(dim=1)
+    block_starts = block_ids * block_size
+    prior_index = (block_starts - 1).clamp_min(0)
+    prior_totals = prefix_totals[:, prior_index, :]
+    has_prior = (block_starts > 0).reshape(1, seq_len, 1)
+    zero_prior = torch.zeros_like(prior_totals)
+    current_totals = prefix_totals - torch.where(has_prior, prior_totals, zero_prior)
+    current_counts = (positions - block_starts + 1).to(hidden.dtype)
+    current_prefix = current_totals / current_counts.reshape(1, seq_len, 1)
+    return CausalBlockSummaries(full=full, current_prefix=current_prefix, token_blocks=block_ids)
+
+
+def selected_block_context(
+    block_summaries: CausalBlockSummaries,
+    selection_scores: torch.Tensor,
+    selected_blocks: torch.Tensor,
+) -> torch.Tensor:
+    batch_size, seq_len, _ = selected_blocks.shape
+    batch_index = torch.arange(batch_size, device=selected_blocks.device).reshape(batch_size, 1, 1)
+    selected = block_summaries.full[batch_index, selected_blocks]
+    current_blocks_for_token = block_summaries.token_blocks.reshape(1, seq_len, 1)
+    current_prefix = block_summaries.current_prefix[:, :, None, :]
+    selected = torch.where(
+        (selected_blocks == current_blocks_for_token)[..., None],
+        current_prefix,
+        selected,
+    )
+    selected_scores = torch.gather(selection_scores, dim=2, index=selected_blocks)
+    weights = F.softmax(selected_scores, dim=-1).unsqueeze(-1)
+    return (selected * weights).sum(dim=2)
+
+
+def causal_block_scores(
+    query_projection: torch.Tensor,
+    full_key_projection: torch.Tensor,
+    current_key_projection: torch.Tensor,
+    block_summaries: CausalBlockSummaries,
+) -> torch.Tensor:
+    scale = query_projection.shape[-1] ** -0.5
+    scores = torch.einsum("btd,bnd->btn", query_projection, full_key_projection) * scale
+    current_scores = (query_projection * current_key_projection).sum(dim=-1) * scale
+    current_index = block_summaries.token_blocks.reshape(1, -1, 1).expand(query_projection.shape[0], -1, 1)
+    return scores.scatter(dim=2, index=current_index, src=current_scores[..., None])
+
+
 def parse_attention_mode(raw: str | SparseAttentionMode) -> SparseAttentionMode:
     try:
         return SparseAttentionMode(raw)
     except ValueError as exc:
-        raise SparseConfigError("attention_mode", "must be local or content_sparse") from exc
+        raise SparseConfigError("attention_mode", "must be local, content_sparse, grip_read, or grip_select") from exc

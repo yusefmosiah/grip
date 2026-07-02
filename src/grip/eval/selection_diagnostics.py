@@ -91,9 +91,9 @@ def write_selection_diagnostics(
 
 def _selection_consumed(attention_mode: str) -> bool:
     match attention_mode:
-        case "content_sparse":
+        case "content_sparse" | "grip_read" | "grip_select":
             return True
         case "local":
             return False
         case _:
-            raise SelectionDiagnosticsError("attention_mode", "must be local or content_sparse")
+            raise SelectionDiagnosticsError("attention_mode", "must be local, content_sparse, grip_read, or grip_select")

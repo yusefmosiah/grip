@@ -6,7 +6,13 @@ from .noise_floor_calibration_types import NoiseFloorCalibrationConfig
 from .score_types import JsonValue
 
 
-BASELINE_NAMES: tuple[str, ...] = ("dense", "local", "content-sparse")
+BASELINE_NAMES: tuple[str, ...] = (
+    "dense",
+    "local",
+    "content-sparse",
+    "grip-read-A",
+    "grip-select-B",
+)
 
 
 def calibration_payload(config: NoiseFloorCalibrationConfig) -> dict[str, JsonValue]:

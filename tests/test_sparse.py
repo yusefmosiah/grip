@@ -1,7 +1,9 @@
 import pytest
 import torch
+import torch.nn.functional as F
 
 from grip.models import ContentSparseTransformer
+from grip.models.sparse_components import CausalBlockSummaries
 
 
 def _tiny_sparse_model(attention_mode: str = "content_sparse") -> ContentSparseTransformer:
@@ -56,6 +58,44 @@ def test_sparse_forward_returns_trace_contract() -> None:
     assert out["grip_state"] is None
     assert out["grip_recon"] is None
     assert torch.allclose(out["posterior"].sum(-1), torch.ones(2, 8), atol=1e-6)
+
+
+def test_grip_variants_return_explicit_state() -> None:
+    # Given: grip-read and grip-select variants.
+    tokens = torch.arange(8, dtype=torch.long).unsqueeze(0)
+    read_model = _tiny_sparse_model(attention_mode="grip_read").eval()
+    select_model = _tiny_sparse_model(attention_mode="grip_select").eval()
+
+    # When: each variant runs a forward pass.
+    with torch.no_grad():
+        read_out = read_model(tokens)
+        select_out = select_model(tokens)
+
+    # Then: both expose explicit grip state and reconstruction tensors.
+    assert read_out["metadata"]["attention_mode"] == "grip_read"
+    assert select_out["metadata"]["attention_mode"] == "grip_select"
+    assert read_out["grip_state"].shape == (1, 8, 16)
+    assert read_out["grip_recon"].shape == (1, 8, 2)
+    assert select_out["grip_state"].shape == (1, 8, 16)
+    assert select_out["grip_recon"].shape == (1, 8, 2)
+
+
+def test_grip_read_uses_content_selection_like_content_sparse() -> None:
+    # Given: content-sparse and grip-read models with identical parameters.
+    torch.manual_seed(29)
+    content_model = _tiny_sparse_model(attention_mode="content_sparse").eval()
+    read_model = _tiny_sparse_model(attention_mode="grip_read").eval()
+    read_model.load_state_dict(content_model.state_dict())
+    tokens = torch.arange(8, dtype=torch.long).unsqueeze(0)
+
+    # When: both modes select sparse blocks.
+    with torch.no_grad():
+        content_out = content_model(tokens)
+        read_out = read_model(tokens)
+
+    # Then: Grip A changes the read state, not the selector.
+    assert torch.equal(content_out["selection_scores"], read_out["selection_scores"])
+    assert torch.equal(content_out["selected_blocks"], read_out["selected_blocks"])
 
 
 def test_sparse_selection_is_causal_at_block_boundaries() -> None:
@@ -134,6 +174,70 @@ def test_sparse_modes_report_metadata_and_content_sparse_consumes_context() -> N
     assert torch.equal(local_out["selected_blocks"], content_out["selected_blocks"])
 
 
+def test_content_sparse_selector_scores_receive_loss_gradient() -> None:
+    # Given: a content-sparse model with learnable selector projections.
+    torch.manual_seed(19)
+    model = _tiny_sparse_model()
+    tokens = torch.arange(8, dtype=torch.long).unsqueeze(0)
+
+    # When: next-token loss flows through selected sparse context.
+    out = model(tokens)
+    loss = F.cross_entropy(
+        out["lm_logits"][:, :-1].reshape(-1, model.vocab_size),
+        tokens[:, 1:].reshape(-1),
+    )
+    loss.backward()
+
+    # Then: selector parameters are on the loss path.
+    assert model.selector_query.weight.grad is not None
+    assert model.selector_key.weight.grad is not None
+    assert model.selector_query.weight.grad.abs().sum().item() > 0
+    assert model.selector_key.weight.grad.abs().sum().item() > 0
+
+
+def test_grip_read_state_receives_next_token_loss_gradient() -> None:
+    # Given: a grip-read model whose selector remains content-only.
+    torch.manual_seed(23)
+    model = _tiny_sparse_model(attention_mode="grip_read")
+    tokens = torch.arange(8, dtype=torch.long).unsqueeze(0)
+
+    # When: next-token loss flows through the Grip read context.
+    out = model(tokens)
+    loss = F.cross_entropy(
+        out["lm_logits"][:, :-1].reshape(-1, model.vocab_size),
+        tokens[:, 1:].reshape(-1),
+    )
+    loss.backward()
+
+    # Then: the explicit Grip state and reconstruction head are trained by the read path.
+    assert model.grip_state_projection.weight.grad is not None
+    assert model.grip_recon.weight.grad is not None
+    assert model.grip_recon_projection.weight.grad is not None
+    assert model.grip_state_projection.weight.grad.abs().sum().item() > 0
+    assert model.grip_recon.weight.grad.abs().sum().item() > 0
+    assert model.grip_recon_projection.weight.grad.abs().sum().item() > 0
+
+
+def test_block_summaries_match_compact_causal_prefix_means() -> None:
+    # Given: hidden states with two-token blocks.
+    model = _tiny_sparse_model()
+    hidden = torch.arange(1 * 5 * 2, dtype=torch.float32).reshape(1, 5, 2)
+
+    # When: block summaries are computed.
+    summaries = model._summarize_blocks(hidden)
+
+    # Then: full block means and current-block prefixes are represented compactly.
+    expected_full = torch.tensor(
+        [[[1.0, 2.0], [5.0, 6.0], [8.0, 9.0]]]
+    )
+    expected_current_prefix = torch.tensor(
+        [[[0.0, 1.0], [1.0, 2.0], [4.0, 5.0], [5.0, 6.0], [8.0, 9.0]]]
+    )
+    assert torch.equal(summaries.full, expected_full)
+    assert torch.equal(summaries.current_prefix, expected_current_prefix)
+    assert torch.equal(summaries.token_blocks, torch.tensor([0, 0, 1, 1, 2]))
+
+
 def test_content_sparse_hidden_depends_on_selected_block_ids() -> None:
     class PreferBlock(ContentSparseTransformer):
         def __init__(self, preferred_block: int):
@@ -153,12 +257,12 @@ def test_content_sparse_hidden_depends_on_selected_block_ids() -> None:
         def _block_importance(
             self,
             query: torch.Tensor,
-            block_summaries: torch.Tensor,
+            block_summaries: CausalBlockSummaries,
         ) -> torch.Tensor:
             scores = torch.zeros(
                 query.shape[0],
                 query.shape[1],
-                block_summaries.shape[2],
+                block_summaries.full.shape[1],
                 device=query.device,
                 dtype=query.dtype,
             )
@@ -188,9 +292,9 @@ def test_sparse_selection_uses_block_importance_override() -> None:
         def _block_importance(
             self,
             query: torch.Tensor,
-            block_summaries: torch.Tensor,
+            block_summaries: CausalBlockSummaries,
         ) -> torch.Tensor:
-            block_count = block_summaries.shape[2]
+            block_count = block_summaries.full.shape[1]
             scores = torch.arange(block_count, device=query.device, dtype=query.dtype)
             return scores.reshape(1, 1, block_count).expand(query.shape[0], query.shape[1], -1)
 

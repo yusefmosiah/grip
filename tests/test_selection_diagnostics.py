@@ -42,3 +42,22 @@ def test_selection_diagnostics_labels_local_selection_as_not_consumed() -> None:
     # Then: the report names the selector surface without claiming local consumed it.
     assert diagnostics.attention_mode == "local"
     assert diagnostics.selection_consumed is False
+
+
+def test_selection_diagnostics_labels_grip_selection_as_consumed() -> None:
+    # Given: a grip-select trace over selected blocks.
+    selected_blocks = torch.tensor([[[0], [0], [1], [1]]])
+    decisive_idx = torch.tensor([[0, 1, 0, 1]])
+
+    # When: diagnostics are produced for grip-select mode.
+    diagnostics = selection_diagnostics(
+        selected_blocks=selected_blocks,
+        decisive_idx=decisive_idx,
+        attention_mode="grip_select",
+        block_size=2,
+        read_budget=1,
+    )
+
+    # Then: the report records that selected blocks are consumed by the model.
+    assert diagnostics.attention_mode == "grip_select"
+    assert diagnostics.selection_consumed is True

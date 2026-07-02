@@ -71,10 +71,11 @@ def train(config: RunConfig | Mapping[str, JsonValue], run_dir: str | Path = "ru
     """Run one artifact-plumbing job. Writes resolved config, JSONL log, and metrics.
 
     config keys (minimal):
-        model: {name: 'dense'|'sparse', d_model, n_layers, ...}
+        model: {name: 'dense'|'sparse'|'grip-read-A'|'grip-select-B', ...}
         data:  {task:'bayesian', seq_len, num_hypotheses, ...}
         train: {steps, microbatch, grad_accum, lr, precision, seed}
         device: 'mps' | 'cpu'
+        run: {mode: 'stub-dry-run'}
     """
     resolved = parse_run_config(_config_mapping(config) if isinstance(config, RunConfig) else config)
     if resolved.run.mode != "stub-dry-run":
@@ -130,8 +131,8 @@ def _config_mapping(config: RunConfig) -> Mapping[str, JsonValue]:
 
 def _parse_model(raw: Mapping[str, JsonScalar]) -> ModelConfig:
     name = _require_str(raw, "model", "name")
-    if name not in {"dense", "sparse"}:
-        raise ConfigError("model", "name", "must be dense or sparse")
+    if name not in {"dense", "sparse", "grip-read-A", "grip-select-B"}:
+        raise ConfigError("model", "name", "must be dense, sparse, grip-read-A, or grip-select-B")
     top_k_blocks = _optional_int(raw, "model", "top_k_blocks")
     if name != "dense" and top_k_blocks is None:
         raise ConfigError("model", "top_k_blocks", "required for sparse variants")

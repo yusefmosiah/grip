@@ -68,6 +68,21 @@ def test_train_artifacts_do_not_claim_winners(tmp_path: Path) -> None:
     assert "beats" not in joined
 
 
+@pytest.mark.parametrize("model_name", ["grip-read-A", "grip-select-B"])
+def test_train_stub_accepts_declared_grip_variant_names(tmp_path: Path, model_name: str) -> None:
+    # Given: an explicit stub-dry-run config for a declared Grip variant name.
+    config = _smoke_config()
+    config["model"]["name"] = model_name
+    config["model"]["top_k_blocks"] = 2
+
+    # When: the fenced stub path writes artifacts.
+    run_dir = train(config, tmp_path / model_name)
+
+    # Then: resolved config preserves the declared variant.
+    resolved = json.loads((run_dir / "config.resolved.json").read_text(encoding="utf-8"))
+    assert resolved["model"]["name"] == model_name
+
+
 def test_train_rejects_missing_required_config_section(tmp_path: Path) -> None:
     # Given: a config missing the data section.
     config = _smoke_config()
