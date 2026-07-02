@@ -207,11 +207,14 @@ attention, exclude PAD positions from block summaries/selection, and mask the
 loss. Add a test: loss on a padded batch equals loss on the unpadded prefix.
 
 ### P2.3 Scorer/metrics fixes
-**Status.** PARTIAL in `f984584` and `2802949`: `compare()` now requires an
-explicit comparison output path; the `score.py` / `train/run.py` `__main__`
-stubs are wired to real CLIs; no-decisive-position recall is nullable; and
-constant-target R² now distinguishes exact predictions from noise floor.
-Remaining bypass/noise-floor/stream fixes below are still open.
+**Status.** PARTIAL in `f984584`, `2802949`, and `fc90d35`: `compare()` now
+requires an explicit comparison output path; the `score.py` / `train/run.py`
+`__main__` stubs are wired to real CLIs; no-decisive-position recall is
+nullable; constant-target R² now distinguishes exact predictions from noise
+floor; noise-floor staleness is keyed to a content hash; first-token
+confidence moves are computed from the uniform prior; and flip provenance is
+jointly sorted. The bypass probe power/grid/convergence bullet below remains
+open.
 - `score.py:99`: `comparison.json` written to `runs[0].parent` — arbitrary
   location, silent overwrite. Take an explicit output path.
 - `score.py:123`: `SystemExit("CODEX: wire CLI args")` — implement or delete
