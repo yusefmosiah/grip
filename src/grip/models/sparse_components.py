@@ -5,8 +5,9 @@ from enum import StrEnum
 from typing import TypedDict
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+
+from .transformer_blocks import CausalTransformerBlock, CausalTransformerBlockConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,51 +40,8 @@ class CausalBlockSummaries:
     token_blocks: torch.Tensor
 
 
-@dataclass(frozen=True, slots=True)
-class LocalBlockConfig:
-    d_model: int
-    n_heads: int
-    d_ff: int
-    window: int
-
-
-class LocalCausalBlock(nn.Module):
-    def __init__(self, config: LocalBlockConfig):
-        super().__init__()
-        if config.d_model % config.n_heads != 0:
-            raise SparseConfigError("d_model", "must be divisible by n_heads")
-        self.n_heads = config.n_heads
-        self.d_head = config.d_model // config.n_heads
-        self.window = config.window
-        self.qkv = nn.Linear(config.d_model, 3 * config.d_model)
-        self.out = nn.Linear(config.d_model, config.d_model)
-        self.ff = nn.Sequential(
-            nn.Linear(config.d_model, config.d_ff),
-            nn.GELU(),
-            nn.Linear(config.d_ff, config.d_model),
-        )
-        self.norm1 = nn.LayerNorm(config.d_model)
-        self.norm2 = nn.LayerNorm(config.d_model)
-
-    def forward(self, x: torch.Tensor, real_mask: torch.Tensor | None = None) -> torch.Tensor:
-        batch_size, seq_len, channels = x.shape
-        h = self.norm1(x)
-        qkv = self.qkv(h).reshape(batch_size, seq_len, self.n_heads, 3 * self.d_head)
-        qkv = qkv.transpose(1, 2)
-        query, key, value = qkv.chunk(3, dim=-1)
-        attn_mask = local_causal_mask(seq_len, self.window, x.device)
-        if real_mask is not None:
-            attn_mask = attn_mask.reshape(1, 1, seq_len, seq_len) & real_mask.reshape(batch_size, 1, 1, seq_len)
-        attn = F.scaled_dot_product_attention(
-            query,
-            key,
-            value,
-            attn_mask=attn_mask,
-            dropout_p=0.0,
-        )
-        attn = attn.transpose(1, 2).reshape(batch_size, seq_len, channels)
-        x = x + self.out(attn)
-        return x + self.ff(self.norm2(x))
+LocalBlockConfig = CausalTransformerBlockConfig
+LocalCausalBlock = CausalTransformerBlock
 
 
 def local_causal_mask(seq_len: int, window: int, device: torch.device) -> torch.Tensor:
