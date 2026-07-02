@@ -11,6 +11,7 @@ from .headroom_training import TRAINING_SEED_STRIDE
 from .noise_floor import MIN_NOISE_FLOOR_SEEDS, load_noise_floor
 from .noise_floor_artifact import noise_floor_payload
 from .noise_floor_calibration_types import NoiseFloorCalibrationConfig
+from .experiment_config import shared_config_kwargs
 from .score import score_run
 from .score_types import JsonValue
 
@@ -160,23 +161,8 @@ def _m_regime_config(
 ) -> MRegimeConfig:
     return MRegimeConfig(
         out_dir=out_dir,
-        task=config.task,
         seed=seed,
-        seq_len=config.seq_len,
-        vocab_size=config.vocab_size,
-        d_model=config.d_model,
-        n_heads=config.n_heads,
-        n_layers=config.n_layers,
-        n_hypotheses=config.n_hypotheses,
-        block_size=config.block_size,
-        top_k_blocks=config.top_k_blocks,
-        window=config.window,
-        train_steps=config.train_steps,
-        train_batch_size=config.train_batch_size,
-        eval_batch_size=config.eval_batch_size,
-        eval_seed_offset=config.eval_seed_offset,
-        lr=config.lr,
-        device=config.device,
+        **shared_config_kwargs(config),
     )
 
 

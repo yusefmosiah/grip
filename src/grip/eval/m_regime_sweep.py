@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Sequence, TypeAlias
 
 from .aggregate_summary import AggregateSummaryResult, aggregate_summary_file
+from .experiment_config import (
+    experiment_provenance_payload,
+    shared_config_kwargs,
+)
 from .headroom import MRegimeConfig, MRegimeResult, run_m_regime_smoke
 from .noise_floor import MIN_NOISE_FLOOR_SEEDS
 from .noise_floor_calibration import NoiseFloorCalibrationConfig, calibrate_noise_floor
@@ -67,24 +71,9 @@ def run_m_regime_sweep(config: MRegimeSweepConfig) -> MRegimeSweepResult:
 def _calibration_config(config: MRegimeSweepConfig) -> NoiseFloorCalibrationConfig:
     return NoiseFloorCalibrationConfig(
         out_dir=config.out_dir / "noise-floor",
-        task=config.task,
         seed_ids=tuple(seed + DEFAULT_CALIBRATION_SEED_OFFSET for seed in config.seed_ids),
         decision_seed_ids=config.seed_ids,
-        seq_len=config.seq_len,
-        vocab_size=config.vocab_size,
-        d_model=config.d_model,
-        n_heads=config.n_heads,
-        n_layers=config.n_layers,
-        n_hypotheses=config.n_hypotheses,
-        block_size=config.block_size,
-        top_k_blocks=config.top_k_blocks,
-        window=config.window,
-        train_steps=config.train_steps,
-        train_batch_size=config.train_batch_size,
-        eval_batch_size=config.eval_batch_size,
-        eval_seed_offset=config.eval_seed_offset,
-        lr=config.lr,
-        device=config.device,
+        **shared_config_kwargs(config),
     )
 
 
@@ -113,24 +102,9 @@ def _headroom_config(config: MRegimeSweepConfig, noise_floor_path: Path, seed: i
         out_dir=config.out_dir / "decisions" / f"seed-{seed}",
         noise_floor_path=noise_floor_path,
         preregistered=True,
-        task=config.task,
-        device=config.device,
         seed=seed,
-        seq_len=config.seq_len,
-        vocab_size=config.vocab_size,
-        d_model=config.d_model,
-        n_heads=config.n_heads,
-        n_layers=config.n_layers,
-        n_hypotheses=config.n_hypotheses,
-        block_size=config.block_size,
-        top_k_blocks=config.top_k_blocks,
-        window=config.window,
-        train_steps=config.train_steps,
-        train_batch_size=config.train_batch_size,
-        eval_batch_size=config.eval_batch_size,
-        eval_seed_offset=config.eval_seed_offset,
-        lr=config.lr,
         decision_seed_count=len(config.seed_ids),
+        **shared_config_kwargs(config),
     )
 
 
@@ -181,36 +155,11 @@ def _summary_payload(
 
 
 def _provenance_payload(config: MRegimeSweepConfig) -> dict[str, JsonValue]:
-    return {
-        "data": {
-            "seq_len": config.seq_len,
-            "task": config.task,
-            "vocab_size": config.vocab_size,
-        },
-        "decision": {
-            "seed_count": len(config.seed_ids),
-        },
-        "eval": {
-            "batch_size": config.eval_batch_size,
-            "seed_offset": config.eval_seed_offset,
-        },
-        "model": {
-            "d_model": config.d_model,
-            "n_heads": config.n_heads,
-            "n_hypotheses": config.n_hypotheses,
-            "n_layers": config.n_layers,
-        },
-        "sparse": {
-            "block_size": config.block_size,
-            "top_k_blocks": config.top_k_blocks,
-            "window": config.window,
-        },
-        "train": {
-            "batch_size": config.train_batch_size,
-            "lr": config.lr,
-            "steps": config.train_steps,
-        },
-    }
+    return experiment_provenance_payload(
+        config,
+        decision_seed_count=len(config.seed_ids),
+        include_device=False,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

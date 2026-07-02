@@ -4,6 +4,7 @@ import hashlib
 import json
 from typing import TYPE_CHECKING, Mapping, Sequence
 
+from .experiment_config import experiment_provenance_payload
 from .headroom_baselines import BASELINE_NAMES
 from .score_types import JsonValue
 
@@ -26,38 +27,13 @@ _HASHED_AUTHORITY_FIELDS: tuple[str, ...] = (
 
 
 def calibration_payload(config: NoiseFloorCalibrationConfig) -> dict[str, JsonValue]:
-    return {
-        "baseline_names": list(BASELINE_NAMES),
-        "data": {
-            "seq_len": config.seq_len,
-            "task": config.task,
-            "vocab_size": config.vocab_size,
-        },
-        "decision": {
-            "seed_count": len(config.decision_seed_ids),
-        },
-        "device": config.device,
-        "eval": {
-            "batch_size": config.eval_batch_size,
-            "seed_offset": config.eval_seed_offset,
-        },
-        "model": {
-            "d_model": config.d_model,
-            "n_heads": config.n_heads,
-            "n_hypotheses": config.n_hypotheses,
-            "n_layers": config.n_layers,
-        },
-        "sparse": {
-            "block_size": config.block_size,
-            "top_k_blocks": config.top_k_blocks,
-            "window": config.window,
-        },
-        "train": {
-            "batch_size": config.train_batch_size,
-            "lr": config.lr,
-            "steps": config.train_steps,
-        },
-    }
+    payload = experiment_provenance_payload(
+        config,
+        decision_seed_count=len(config.decision_seed_ids),
+        include_device=True,
+    )
+    payload["baseline_names"] = list(BASELINE_NAMES)
+    return payload
 
 
 def noise_floor_payload(

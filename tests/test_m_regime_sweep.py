@@ -8,11 +8,13 @@ import pytest
 from grip.eval.m_regime_sweep import (
     MRegimeSweepConfig,
     _calibration_config,
+    _headroom_config,
     _losses,
     main,
     run_m_regime_sweep,
 )
-from grip.eval.headroom_types import MRegimeResult
+from grip.eval.headroom_types import MRegimeConfig, MRegimeResult
+from grip.eval.noise_floor_calibration_types import NoiseFloorCalibrationConfig
 from grip.eval.score import score_run
 from grip.eval.score_types import ComparisonReport
 
@@ -112,6 +114,59 @@ def test_sweep_losses_use_resolved_model_names_not_run_dir_names(tmp_path: Path)
     assert losses.dense == 0.20
     assert losses.local == 0.25
     assert losses.content_sparse == 0.30
+
+
+def test_sweep_config_converters_preserve_shared_experiment_fields(tmp_path: Path) -> None:
+    config = MRegimeSweepConfig(
+        out_dir=tmp_path / "sweep",
+        task="reversal",
+        seq_len=32,
+        vocab_size=64,
+        d_model=24,
+        n_heads=3,
+        n_layers=2,
+        n_hypotheses=4,
+        block_size=4,
+        top_k_blocks=5,
+        window=6,
+        train_steps=7,
+        train_batch_size=8,
+        eval_batch_size=9,
+        eval_seed_offset=10_000,
+        lr=2e-3,
+        device="cpu",
+    )
+
+    calibration = _calibration_config(config)
+    headroom = _headroom_config(config, tmp_path / "noise-floor.json", seed=11)
+
+    for converted in (calibration, headroom):
+        assert converted.task == config.task
+        assert converted.seq_len == config.seq_len
+        assert converted.vocab_size == config.vocab_size
+        assert converted.d_model == config.d_model
+        assert converted.n_heads == config.n_heads
+        assert converted.n_layers == config.n_layers
+        assert converted.n_hypotheses == config.n_hypotheses
+        assert converted.block_size == config.block_size
+        assert converted.top_k_blocks == config.top_k_blocks
+        assert converted.window == config.window
+        assert converted.train_steps == config.train_steps
+        assert converted.train_batch_size == config.train_batch_size
+        assert converted.eval_batch_size == config.eval_batch_size
+        assert converted.eval_seed_offset == config.eval_seed_offset
+        assert converted.lr == config.lr
+        assert converted.device == config.device
+
+
+def test_shared_config_inheritance_preserves_positional_task_compatibility(tmp_path: Path) -> None:
+    sweep = MRegimeSweepConfig(tmp_path / "sweep", "reversal")
+    calibration = NoiseFloorCalibrationConfig(tmp_path / "noise-floor", "reversal")
+    headroom = MRegimeConfig(tmp_path / "headroom", None, False, "reversal")
+
+    assert sweep.task == "reversal"
+    assert calibration.task == "reversal"
+    assert headroom.task == "reversal"
 
 
 def test_m_regime_sweep_cli_prints_aggregate_summary_path(
