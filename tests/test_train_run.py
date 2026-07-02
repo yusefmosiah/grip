@@ -15,7 +15,7 @@ def _smoke_config() -> dict:
         "data": {"task": "T0-bayesian-evidence-streams", "seq_len": 128, "num_hypotheses": 4},
         "train": {"steps": 0, "microbatch": 1, "grad_accum": 1, "lr": 0.001, "seed": 123},
         "device": "cpu",
-        "run": {"mode": "smoke"},
+        "run": {"mode": "stub-dry-run"},
     }
 
 
@@ -35,7 +35,7 @@ def test_train_dry_run_writes_deterministic_artifacts(tmp_path: Path) -> None:
     assert resolved_a == resolved_b
     assert resolved_a["train"]["seed"] == 123
     assert resolved_a["device"] == "cpu"
-    assert resolved_a["run"]["mode"] == "smoke"
+    assert resolved_a["run"]["mode"] == "stub-dry-run"
     assert resolved_a["model"]["name"] == "dense"
     assert resolved_a["data"]["seq_len"] == 128
     assert resolved_a["read_budget"] is None
@@ -76,6 +76,19 @@ def test_train_rejects_missing_required_config_section(tmp_path: Path) -> None:
     # When / Then: boundary parsing rejects it before writing artifacts.
     with pytest.raises(ConfigError, match="data"):
         train(config, tmp_path / "run")
+
+
+@pytest.mark.parametrize("mode", ["smoke", "preregistered"])
+def test_train_rejects_non_stub_mode_before_writing_artifacts(tmp_path: Path, mode: str) -> None:
+    # Given: an official-looking mode pointed at the stub trainer.
+    config = _smoke_config()
+    config["run"]["mode"] = mode
+    run_dir = tmp_path / "run"
+
+    # When / Then: the trainer rejects it before writing stub artifacts.
+    with pytest.raises(ConfigError, match="stub-dry-run"):
+        train(config, run_dir)
+    assert not run_dir.exists()
 
 
 @pytest.mark.parametrize(

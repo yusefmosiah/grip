@@ -77,6 +77,8 @@ def train(config: RunConfig | Mapping[str, JsonValue], run_dir: str | Path = "ru
         device: 'mps' | 'cpu'
     """
     resolved = parse_run_config(_config_mapping(config) if isinstance(config, RunConfig) else config)
+    if resolved.run.mode != "stub-dry-run":
+        raise ConfigError("run", "mode", "stub trainer requires explicit stub-dry-run mode")
     out_dir = Path(run_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     resolved_payload = _resolved_payload(resolved)
@@ -162,8 +164,8 @@ def _parse_train(raw: Mapping[str, JsonScalar]) -> TrainConfig:
 
 def _parse_run(raw: Mapping[str, JsonScalar]) -> RunSettings:
     mode = _require_str(raw, "run", "mode")
-    if mode not in {"smoke", "preregistered"}:
-        raise ConfigError("run", "mode", "must be smoke or preregistered")
+    if mode not in {"stub-dry-run", "smoke", "preregistered"}:
+        raise ConfigError("run", "mode", "must be stub-dry-run, smoke, or preregistered")
     return RunSettings(mode=mode)
 
 
