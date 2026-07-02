@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import torch
 
 from grip.analysis.bypass import (
     BypassProbeConfig,
@@ -65,6 +66,33 @@ class OrderLeakStream:
         return StreamSample(
             tokens=tokens,
             answer=answer,
+            posterior=posterior,
+            entropy=np.zeros(self.T, dtype=np.float64),
+            belief_move=d_conf.copy(),
+            d_conf=d_conf,
+            dd_conf=np.zeros(self.T, dtype=np.float64),
+            source_idx=np.zeros(self.T, dtype=np.int64),
+            source_trust=np.ones((self.T, self.S), dtype=np.float64),
+            decisive_idx=np.zeros(self.T, dtype=np.int64),
+            block_boundaries=np.asarray([0, self.T], dtype=np.int64),
+            metadata={"natural_len": self.T},
+        )
+
+
+class ConstantTokenStream:
+    T = 12
+    K = 2
+    S = 1
+    vocab_size = 4
+
+    def generate(self, seed: int | None = None) -> StreamSample:
+        sample_seed = 0 if seed is None else seed
+        tokens = np.ones(self.T, dtype=np.int64)
+        posterior = np.full((self.T, self.K), 0.5, dtype=np.float64)
+        d_conf = np.zeros(self.T, dtype=np.float64)
+        return StreamSample(
+            tokens=tokens,
+            answer=sample_seed % self.K,
             posterior=posterior,
             entropy=np.zeros(self.T, dtype=np.float64),
             belief_move=d_conf.copy(),
@@ -142,6 +170,78 @@ def test_bypass_probe_flags_legible_token_leak():
     assert not result.passed
 
 
+def test_bypass_probe_positive_control_certifies_probe_power():
+    # Given: a stream whose raw tokens directly encode both answer and d_conf.
+    stream = TokenLeakStream()
+    config = BypassProbeConfig(
+        n_train_streams=16,
+        n_test_streams=8,
+        train_seed_base=0,
+        test_seed_base=100,
+        window=2,
+        window_grid=(1, 2),
+        ridge_grid=(1e-3, 1e-2),
+        probe_epochs=50,
+    )
+
+    # When: the bypass probe runs with its synthetic legibility control.
+    result = run_bypass_probe(stream, config)
+
+    # Then: the control proves the linear probe can decode a legible raw-token target.
+    assert result.positive_control_r2 >= result.positive_control_r2_threshold
+    assert result.positive_control_passed
+    assert result.window in result.window_grid
+    assert result.ridge in result.ridge_grid
+
+
+def test_bypass_probe_rejects_degenerate_positive_control():
+    # Given: raw-token features with no varying train/test feature column.
+    stream = ConstantTokenStream()
+    config = BypassProbeConfig(
+        n_train_streams=8,
+        n_test_streams=4,
+        train_seed_base=0,
+        test_seed_base=100,
+        window=4,
+        window_grid=(4,),
+        ridge_grid=(1e-3,),
+        probe_epochs=20,
+    )
+
+    # When: the bypass probe tries to certify raw-token probe power.
+    result = run_bypass_probe(stream, config)
+
+    # Then: the control fails instead of reporting a meaningless constant-target R2.
+    assert result.positive_control_r2 == 0.0
+    assert not result.positive_control_passed
+    assert not result.passed
+
+
+def test_answer_probe_uses_caller_seed_and_reports_convergence(monkeypatch: pytest.MonkeyPatch):
+    # Given: a legible-answer stream and a guard against hidden global reseeding.
+    stream = TokenLeakStream()
+    config = BypassProbeConfig(
+        n_train_streams=16,
+        n_test_streams=8,
+        train_seed_base=0,
+        test_seed_base=100,
+        window=2,
+        probe_epochs=50,
+    )
+
+    def fail_manual_seed(seed: int):
+        raise AssertionError(f"unexpected manual_seed({seed})")
+
+    monkeypatch.setattr(torch, "manual_seed", fail_manual_seed)
+
+    # When: the answer probe trains.
+    result = run_bypass_probe(stream, config)
+
+    # Then: training uses caller-owned RNG state and records optimizer progress.
+    assert result.answer_converged
+    assert result.answer_train_loss_final <= result.answer_train_loss_initial
+
+
 def test_bypass_probe_flags_order_only_answer_leak():
     # Given: a stream where token counts are identical and only order leaks answer.
     stream = OrderLeakStream()
@@ -184,7 +284,12 @@ def test_bypass_probe_reports_gate_decision_for_bayesian_stream():
     assert result.answer_acc_threshold == 0.8
     assert isinstance(result.d_conf_passed, bool)
     assert isinstance(result.answer_passed, bool)
-    assert result.passed == (result.d_conf_passed and result.answer_passed)
+    assert result.passed == (
+        result.d_conf_passed
+        and result.answer_passed
+        and result.positive_control_passed
+        and result.answer_converged
+    )
 
 
 def test_bypass_runner_writes_report(tmp_path):
@@ -215,10 +320,31 @@ def test_bypass_runner_writes_report(tmp_path):
     assert set(report["metrics"]) == {"T0-bayesian-evidence-streams", "T1-source-reliability-reversal"}
     assert "d_conf_r2" in report["metrics"]["T0-bayesian-evidence-streams"]
     assert "d_conf_r2" in report["metrics"]["T1-source-reliability-reversal"]
-    assert set(report["thresholds"]) == {"d_conf_r2_threshold", "answer_acc_threshold"}
-    assert set(report["decision"]) == {"d_conf_passed", "answer_passed", "passed"}
+    assert set(report["thresholds"]) == {
+        "d_conf_r2_threshold",
+        "answer_acc_threshold",
+        "positive_control_r2_threshold",
+    }
+    assert set(report["decision"]) == {
+        "d_conf_passed",
+        "answer_passed",
+        "positive_control_passed",
+        "answer_converged",
+        "passed",
+    }
+    first_report = report["reports"]["T0-bayesian-evidence-streams"]
+    assert set(first_report["selected_probe"]) == {
+        "window",
+        "ridge",
+        "answer_window",
+        "window_grid",
+        "ridge_grid",
+    }
+    assert "positive_control_r2" in first_report["metrics"]
+    assert "answer_train_loss_final" in first_report["metrics"]
     assert report["decision"]["passed"] == (
         report["decision"]["d_conf_passed"] and report["decision"]["answer_passed"]
+        and report["decision"]["positive_control_passed"] and report["decision"]["answer_converged"]
     )
 
 

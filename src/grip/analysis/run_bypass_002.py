@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
+from typing import TypedDict
 
 from grip.analysis.bypass import BypassProbeConfig, run_bypass_probe
 from grip.data import BayesianEvidenceStream, SourceReliabilityReversalStream
@@ -20,7 +21,55 @@ class BypassRunConfig:
     probe: BypassProbeConfig = field(default_factory=BypassProbeConfig)
 
 
-TaskReport = dict[str, int | float | bool | str | dict[str, int | float]]
+class StreamPayload(TypedDict):
+    name: str
+    seq_len: int
+    num_hypotheses: int
+    num_sources: int
+    vocab_size: int
+    stream_seed: int
+
+
+class MetricsPayload(TypedDict):
+    d_conf_mse: float
+    d_conf_r2: float
+    answer_accuracy: float
+    positive_control_r2: float
+    answer_train_loss_initial: float
+    answer_train_loss_final: float
+
+
+class ThresholdPayload(TypedDict):
+    d_conf_r2_threshold: float
+    answer_acc_threshold: float
+    positive_control_r2_threshold: float
+
+
+class DecisionPayload(TypedDict):
+    d_conf_passed: bool
+    answer_passed: bool
+    positive_control_passed: bool
+    answer_converged: bool
+    passed: bool
+
+
+class SelectedProbePayload(TypedDict):
+    window: int
+    ridge: float
+    answer_window: int
+    window_grid: list[int]
+    ridge_grid: list[float]
+
+
+class TaskReport(TypedDict):
+    gate: str
+    task: str
+    stream: StreamPayload
+    probe_config: dict[str, object]
+    metrics: MetricsPayload
+    thresholds: ThresholdPayload
+    decision: DecisionPayload
+    selected_probe: SelectedProbePayload
 
 
 def _t0_stream(config: BypassRunConfig) -> BayesianEvidenceStream:
@@ -63,15 +112,28 @@ def _task_report(
             "d_conf_mse": result.d_conf_mse,
             "d_conf_r2": result.d_conf_r2,
             "answer_accuracy": result.answer_accuracy,
+            "positive_control_r2": result.positive_control_r2,
+            "answer_train_loss_initial": result.answer_train_loss_initial,
+            "answer_train_loss_final": result.answer_train_loss_final,
         },
         "thresholds": {
             "d_conf_r2_threshold": result.d_conf_r2_threshold,
             "answer_acc_threshold": result.answer_acc_threshold,
+            "positive_control_r2_threshold": result.positive_control_r2_threshold,
         },
         "decision": {
             "d_conf_passed": result.d_conf_passed,
             "answer_passed": result.answer_passed,
+            "positive_control_passed": result.positive_control_passed,
+            "answer_converged": result.answer_converged,
             "passed": result.passed,
+        },
+        "selected_probe": {
+            "window": result.window,
+            "ridge": result.ridge,
+            "answer_window": result.answer_window,
+            "window_grid": list(result.window_grid),
+            "ridge_grid": list(result.ridge_grid),
         },
     }
 
@@ -108,6 +170,14 @@ def run_gate(config: BypassRunConfig) -> dict[str, object]:
             ),
             "answer_passed": all(
                 bool(report["decision"]["answer_passed"])
+                for report in reports.values()
+            ),
+            "positive_control_passed": all(
+                bool(report["decision"]["positive_control_passed"])
+                for report in reports.values()
+            ),
+            "answer_converged": all(
+                bool(report["decision"]["answer_converged"])
                 for report in reports.values()
             ),
             "passed": all(
