@@ -1,26 +1,19 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Mapping
 
 import torch
-import torch.nn.functional as F
 
-from grip.models import ContentSparseTransformer, DenseTransformer
-
-from .headroom_training import BatchTensors, train_model, training_batch
+from .headroom_runs import write_baselines
+from .headroom_training import training_batch
 from .headroom_types import (
-    BaselineSpec as _BaselineSpec,
     HeadroomConfigError,
     HeadroomStatus,
     MRegimeConfig,
     MRegimeResult,
-    ResolvedJson,
 )
 from .score import compare
 from .score_types import ComparisonReport
-from .selection_diagnostics import write_selection_diagnostics
 
 
 def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
@@ -46,10 +39,7 @@ def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
         seed=eval_seed,
         device=config.device,
     )
-    run_dirs = tuple(
-        _write_baseline(config, spec, train_batch["tokens"], eval_batch)
-        for spec in _baseline_specs(config)
-    )
+    run_dirs = write_baselines(config, train_batch, eval_batch)
     comparison = compare(
         run_dirs,
         noise_floor_path=config.noise_floor_path,
@@ -80,152 +70,6 @@ def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
         status=status,
         authorize_avsb=status == "keep",
     )
-
-
-def _baseline_specs(config: MRegimeConfig) -> tuple[_BaselineSpec, ...]:
-    return (
-        _BaselineSpec("dense", None, None),
-        _BaselineSpec("local", "local", config.top_k_blocks),
-        _BaselineSpec("content-sparse", "content_sparse", config.top_k_blocks),
-    )
-
-
-def _write_baseline(
-    config: MRegimeConfig,
-    spec: _BaselineSpec,
-    train_tokens: torch.Tensor,
-    eval_batch: BatchTensors,
-) -> Path:
-    run_dir = config.out_dir / spec.name
-    run_dir.mkdir(parents=True, exist_ok=True)
-    model = _build_seeded_model(config, spec)
-    train_records = train_model(
-        model=model,
-        tokens=train_tokens,
-        steps=config.train_steps,
-        lr=config.lr,
-        vocab_size=config.vocab_size,
-    )
-    model.eval()
-    eval_tokens = eval_batch["tokens"]
-    with torch.no_grad():
-        out = model(eval_tokens)
-        loss = F.cross_entropy(
-            out["lm_logits"][:, :-1].reshape(-1, config.vocab_size),
-            eval_tokens[:, 1:].reshape(-1),
-        )
-    if spec.attention_mode is not None and spec.read_budget is not None:
-        write_selection_diagnostics(
-            run_dir / "selection_diagnostics.json",
-            selected_blocks=out["selected_blocks"],
-            decisive_idx=eval_batch["decisive_idx"],
-            attention_mode=spec.attention_mode,
-            block_size=config.block_size,
-            read_budget=spec.read_budget,
-        )
-    eval_seed = config.seed + config.eval_seed_offset
-    (run_dir / "config.resolved.json").write_text(
-        json.dumps(_resolved_payload(config, spec), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    (run_dir / "eval_tensors.json").write_text(
-        json.dumps(
-            {
-                "batch_size": config.eval_batch_size,
-                "loss": float(loss.item()),
-                "seed": eval_seed,
-                "seed_offset": config.eval_seed_offset,
-                "tokens": float(eval_tokens.numel()),
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    (run_dir / "train.jsonl").write_text(
-        "\n".join(json.dumps(record, sort_keys=True) for record in train_records) + "\n",
-        encoding="utf-8",
-    )
-    return run_dir
-
-
-def _build_seeded_model(
-    config: MRegimeConfig,
-    spec: _BaselineSpec,
-) -> DenseTransformer | ContentSparseTransformer:
-    torch.manual_seed(config.seed)
-    model = _build_model(config, spec)
-    model.to(config.device)
-    return model
-
-
-def _build_model(
-    config: MRegimeConfig,
-    spec: _BaselineSpec,
-) -> DenseTransformer | ContentSparseTransformer:
-    if spec.name == "dense":
-        return DenseTransformer(
-            vocab_size=config.vocab_size,
-            d_model=config.d_model,
-            n_heads=config.n_heads,
-            n_layers=config.n_layers,
-            max_seq_len=config.seq_len,
-            n_hypotheses=config.n_hypotheses,
-        )
-    if spec.attention_mode is None:
-        raise HeadroomConfigError("attention_mode", "sparse baseline requires attention_mode")
-    return ContentSparseTransformer(
-        vocab_size=config.vocab_size,
-        d_model=config.d_model,
-        n_heads=config.n_heads,
-        n_layers=config.n_layers,
-        max_seq_len=config.seq_len,
-        n_hypotheses=config.n_hypotheses,
-        block_size=config.block_size,
-        top_k_blocks=config.top_k_blocks,
-        window=config.window,
-        attention_mode=spec.attention_mode,
-    )
-
-
-def _resolved_payload(config: MRegimeConfig, spec: _BaselineSpec) -> Mapping[str, ResolvedJson]:
-    return {
-        "artifact_schema_version": 1,
-        "data": {
-            "seq_len": config.seq_len,
-            "task": config.task,
-            "vocab_size": config.vocab_size,
-        },
-        "model": {
-            "attention_mode": spec.attention_mode,
-            "d_model": config.d_model,
-            "n_heads": config.n_heads,
-            "n_layers": config.n_layers,
-            "name": spec.name,
-        },
-        "read_budget": spec.read_budget,
-        "run": {
-            "device": config.device,
-            "mode": "preregistered" if config.preregistered else "smoke",
-        },
-        "eval": {
-            "batch_size": config.eval_batch_size,
-            "seed": config.seed + config.eval_seed_offset,
-            "seed_offset": config.eval_seed_offset,
-        },
-        "seed": config.seed,
-        "sparse": {
-            "block_size": config.block_size,
-            "top_k_blocks": config.top_k_blocks,
-            "window": config.window,
-        },
-        "train": {
-            "batch_size": config.train_batch_size,
-            "lr": config.lr,
-            "steps": config.train_steps,
-        },
-    }
 
 
 def _headroom_status(comparison: ComparisonReport) -> HeadroomStatus:

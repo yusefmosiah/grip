@@ -7,7 +7,9 @@ import pytest
 import torch
 
 import grip.eval.headroom as headroom
+import grip.eval.headroom_runs as headroom_runs
 from grip.eval.headroom import MRegimeConfig, run_m_regime_smoke
+from grip.eval.headroom_training import BatchTensors
 from grip.eval.headroom_types import BaselineSpec
 from grip.models import ContentSparseTransformer, DenseTransformer
 
@@ -165,7 +167,7 @@ def test_m_regime_smoke_uses_matched_initialization_in_run_path(
 ) -> None:
     # Given: same-shape sparse baselines observed through the actual run path.
     config = MRegimeConfig(out_dir=tmp_path / "m-regime")
-    original_build_model = headroom._build_model
+    original_build_model = headroom_runs._build_model
     captured: dict[str, dict[str, torch.Tensor]] = {}
 
     def capture_build_model(
@@ -180,7 +182,7 @@ def test_m_regime_smoke_uses_matched_initialization_in_run_path(
             }
         return model
 
-    monkeypatch.setattr(headroom, "_build_model", capture_build_model)
+    monkeypatch.setattr(headroom_runs, "_build_model", capture_build_model)
 
     # When: the full headroom gate constructs all baselines.
     run_m_regime_smoke(config)
@@ -279,7 +281,7 @@ def test_m_regime_trained_run_requests_disjoint_eval_seed(
         batch_size: int,
         seed: int,
         device: str,
-    ) -> headroom.BatchTensors:
+    ) -> BatchTensors:
         observed.append((seed, batch_size))
         return original_training_batch(
             task=task,
