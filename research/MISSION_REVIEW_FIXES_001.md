@@ -301,8 +301,10 @@ consumers use attribute access, and tests assert the typed output contract).
 typos across eval code — return a dataclass/TypedDict.
 
 ### P3.5 Robustness niceties
-**Status.** PARTIAL in `6ee9f5d` (dense now rejects sequences longer than
-`max_seq_len`, matching sparse's existing boundary check).
+**Status.** DONE across `6ee9f5d` and `a763f02` (dense now rejects sequences
+longer than `max_seq_len`, matching sparse's existing boundary check; headroom
+status and sweep loss decisions now key on resolved `model.name`, not run
+directory basenames).
 - `dense.py:92`: validate `T <= max_seq_len` (sparse already does).
 - Key decision logic on explicit identifiers, not `run_dir.name` string
   lookups (`_headroom_status`, `_losses`).
