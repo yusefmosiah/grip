@@ -19,6 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import numpy as np
 
+from .belief import posterior_latents, source_aware_update
+
 
 @dataclass
 class StreamSample:
@@ -146,13 +148,13 @@ class BayesianEvidenceStream:
             tok = int(rng.choice(info_vocab, p=tok_dist)) + 1
             tokens[t] = tok
 
-            # Bayesian update on the OBSERVED token and source trust.
-            likelihood = (
-                r_current[s_t] * L[tok - 1]
-                + (1.0 - r_current[s_t]) * marginal[tok - 1]
+            post = source_aware_update(
+                prior=prior,
+                token=tok,
+                source_trust=float(r_current[s_t]),
+                likelihood_table=L,
+                marginal=marginal,
             )
-            post = prior * likelihood
-            post = post / post.sum()
             posterior[t] = post
             prior = post
 
@@ -162,39 +164,19 @@ class BayesianEvidenceStream:
             posterior[natural_len:] = posterior[natural_len - 1]
             source_trust[natural_len:] = r_current
 
-        # --- derive latents ---
-        topmass = posterior.max(axis=1)
-        log_posterior = np.zeros_like(posterior)
-        np.log(posterior, out=log_posterior, where=posterior > 0)
-        entropy = -(posterior * log_posterior).sum(axis=1)
-
-        d_conf = np.zeros(T)
-        if T:
-            d_conf[0] = topmass[0] - (1.0 / K)
-            d_conf[1:] = topmass[1:] - topmass[:-1]
-        dd_conf = np.zeros(T)
-        if T > 1:
-            dd_conf[1] = topmass[1] - (2.0 * topmass[0]) + (1.0 / K)
-            dd_conf[2:] = topmass[2:] - 2 * topmass[1:-1] + topmass[:-2]
-
-        # decisive steps: those whose absolute belief move exceeds a fixed
-        # threshold (not a quantile of survivors). A move of 0.02 on topmass
-        # is a real shift in belief; below that is noise. This gives a stable,
-        # comparable count across streams rather than a brittle top-k%.
-        decisive_threshold = 0.02
-        decisive_idx = (np.abs(d_conf) >= decisive_threshold).astype(np.int64)
+        latents = posterior_latents(posterior, prior_topmass=1.0 / K)
 
         return StreamSample(
             tokens=tokens,
             answer=int(posterior[-1].argmax()),
             posterior=posterior,
-            entropy=entropy,
-            belief_move=d_conf.copy(),
-            d_conf=d_conf,
-            dd_conf=dd_conf,
+            entropy=latents.entropy,
+            belief_move=latents.d_conf.copy(),
+            d_conf=latents.d_conf,
+            dd_conf=latents.dd_conf,
             source_idx=source_idx,
             source_trust=source_trust,
-            decisive_idx=decisive_idx,
+            decisive_idx=latents.decisive_idx,
             metadata={
                 "h_star": h_star,
                 "reliability_init": r.tolist(),

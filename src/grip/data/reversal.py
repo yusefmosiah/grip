@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from .belief import posterior_latents, source_aware_update
 from .streams import PAD_TOKEN, StreamSample
 
 
@@ -81,12 +82,13 @@ class SourceReliabilityReversalStream:
                 tok_dist = self._marginal
                 tok = int(rng.choice(self.vocab_size - 1, p=tok_dist)) + 1
             tokens[t] = tok
-            likelihood = (
-                trust[src] * self._likelihood[tok - 1]
-                + (1.0 - trust[src]) * self._marginal[tok - 1]
+            post = source_aware_update(
+                prior=prior,
+                token=tok,
+                source_trust=float(trust[src]),
+                likelihood_table=self._likelihood,
+                marginal=self._marginal,
             )
-            post = prior * likelihood
-            post = post / post.sum()
             posterior[t] = post
             prior = post
 
@@ -95,32 +97,22 @@ class SourceReliabilityReversalStream:
             posterior[natural_len:] = posterior[natural_len - 1]
             source_trust[natural_len:] = source_trust[natural_len - 1]
 
-        topmass = posterior.max(axis=1)
-        log_posterior = np.zeros_like(posterior)
-        np.log(posterior, out=log_posterior, where=posterior > 0)
-        entropy = -(posterior * log_posterior).sum(axis=1)
-        d_conf = np.zeros(self.T, dtype=np.float64)
-        d_conf[0] = topmass[0] - (1.0 / self.K)
-        d_conf[1:] = topmass[1:] - topmass[:-1]
-        dd_conf = np.zeros(self.T, dtype=np.float64)
-        dd_conf[1] = topmass[1] - (2.0 * topmass[0]) + (1.0 / self.K)
-        dd_conf[2:] = topmass[2:] - 2 * topmass[1:-1] + topmass[:-2]
-        decisive_idx = (np.abs(d_conf) >= 0.02).astype(np.int64)
+        latents = posterior_latents(posterior, prior_topmass=1.0 / self.K)
         early_decisive_steps = [
             t for t in early_candidate_steps
-            if decisive_idx[t] == 1 and source_idx[t] == reversal_source
+            if latents.decisive_idx[t] == 1 and source_idx[t] == reversal_source
         ]
         return StreamSample(
             tokens=tokens,
             answer=h_star,
             posterior=posterior,
-            entropy=entropy,
-            belief_move=d_conf.copy(),
-            d_conf=d_conf,
-            dd_conf=dd_conf,
+            entropy=latents.entropy,
+            belief_move=latents.d_conf.copy(),
+            d_conf=latents.d_conf,
+            dd_conf=latents.dd_conf,
             source_idx=source_idx,
             source_trust=source_trust,
-            decisive_idx=decisive_idx,
+            decisive_idx=latents.decisive_idx,
             metadata={
                 "h_star": h_star,
                 "natural_len": natural_len,
