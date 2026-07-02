@@ -264,9 +264,10 @@ model (guards P0.4's real trainer and `headroom_training.py`).
 ## P3 — Code quality and infrastructure
 
 ### P3.1 Deduplicate config plumbing
-**Status.** PARTIAL in `4736492` (shared experiment config projection now feeds
-calibration/headroom converter kwargs and calibration/sweep provenance payloads,
-with constructor-compatibility regressions covered).
+**Status.** DONE across `4736492` and `a837c28` (shared experiment config
+projection now feeds calibration/headroom converter kwargs and
+calibration/sweep/headroom provenance payloads, with constructor-compatibility
+regressions covered).
 `MRegimeConfig` / `NoiseFloorCalibrationConfig` / `MRegimeSweepConfig` are
 three hand-copied 15-field dataclasses with pure field-forwarding converters
 (`_calibration_config`, `_m_regime_config`, `_headroom_config`) — a new field
