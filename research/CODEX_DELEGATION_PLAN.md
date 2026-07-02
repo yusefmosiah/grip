@@ -57,7 +57,7 @@ The current dependency order is:
 2. Fill enough trainer/scorer infrastructure that runs can emit and compare
    artifacts without interpretive shortcuts.
 3. Pin the sparse/grip output contract with tests before implementing variants.
-4. Implement local-only and content-sparse traces.
+4. Implement local and content-sparse traces.
 5. Generate or validate the M-noise-floor artifact with N>=8 seeds before any
    interpretable delta claim.
 6. Run M-regime to prove content-sparse leaves headroom below dense.
@@ -217,7 +217,7 @@ Commit boundary:
 
 - Commit the contract and tests before adding Grip-read or Grip-select logic.
 
-## Slice 003: local-only and content-sparse baselines
+## Slice 003: local and content-sparse baselines
 
 Owner: one implementation agent, one reviewer with performance/regression focus.
 
@@ -230,7 +230,7 @@ Primary files:
 
 Tasks:
 
-- Implement local-only attention using ordinary PyTorch masks or SDPA.
+- Implement local attention using ordinary PyTorch masks or SDPA.
 - Implement content-sparse top-K block selection from compressed block
   summaries.
 - Emit `selected_blocks`, `selection_scores`, read budget, block size, and
@@ -240,7 +240,7 @@ Tasks:
 
 Acceptance:
 
-- Tiny CPU tests cover local-only, content-sparse, causal no-future selection,
+- Tiny CPU tests cover local, content-sparse, causal no-future selection,
   and selected-block recall on known decisive positions.
 - Parameter/read-budget metadata is recorded for comparison.
 - Reviewer confirms no CUDA/Triton/FlexAttention training dependency entered.
@@ -249,7 +249,7 @@ QA:
 
 - `PYTHONPATH=src uv run pytest tests/test_sparse.py tests/test_dense_model.py -q`
   passes.
-- Run a tiny CPU forward pass for `local-only` and `content-sparse`; assert
+- Run a tiny CPU forward pass for `local` and `content-sparse`; assert
   logits, selected blocks, selection scores, and read-budget metadata are
   present.
 - Run `rg -n "triton|flash_attn|xformers|flex_attention" src/grip/models
@@ -275,7 +275,7 @@ Tasks:
 
 - Require the Slice 000 M-noise-floor artifact before marking any M-regime
   comparison interpretable.
-- Run the smallest local M-regime smoke that can compare dense, local-only, and
+- Run the smallest local M-regime smoke that can compare dense, local, and
   content-sparse.
 - Verify content-sparse underperforms dense by a margin above the relevant
   noise floor before spending work on Grip variants.

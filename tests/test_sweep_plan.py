@@ -13,15 +13,12 @@ from grip.eval.sweep_plan import (
     validate_sweep_plan,
     write_sweep_plan,
 )
+from grip.eval.headroom_baselines import BASELINE_NAMES
 
 
 SPEC003_CORE_VARIANTS = {
-    "dense",
-    "local-only",
-    "content-sparse",
+    *BASELINE_NAMES,
     "generic-memory",
-    "grip-read-A",
-    "grip-select-B",
     "grip-select-shuffle-grip",
     "grip-select-wrong-sample-grip",
     "grip-select-bottleneck-off",
@@ -39,6 +36,8 @@ def test_default_spec003_plan_contains_core_ablation_matrix():
     assert names == SPEC003_CORE_VARIANTS
     assert plan.declaration_only is True
     assert plan.lead_task == "T1-source-reliability-reversal"
+    assert "local" in names
+    assert "local-only" not in names
     assert plan.read_k == (4, 8, 16)
     assert plan.grip_r == (2, 4)
     assert plan.seed_count >= 8

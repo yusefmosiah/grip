@@ -5,14 +5,12 @@ import json
 from pathlib import Path
 from typing import Final
 
+from .headroom_baselines import BASELINE_NAMES
+
 
 CORE_VARIANTS: Final = (
-    "dense",
-    "local-only",
-    "content-sparse",
+    *BASELINE_NAMES,
     "generic-memory",
-    "grip-read-A",
-    "grip-select-B",
     "grip-select-shuffle-grip",
     "grip-select-wrong-sample-grip",
     "grip-select-bottleneck-off",
@@ -86,7 +84,7 @@ def default_spec003_plan() -> SweepPlan:
     read_budget = 16
     variants = (
         SweepVariant("dense", "full", "none", False, read_budget, True, "upper reference"),
-        SweepVariant("local-only", "window", "none", False, read_budget, True, "cheap floor"),
+        SweepVariant("local", "window", "none", False, read_budget, True, "cheap floor"),
         SweepVariant("content-sparse", "top-K content", "none", False, read_budget, True, "stock baseline"),
         SweepVariant("generic-memory", "top-K content", "generic slots", False, read_budget, True, "capacity confound"),
         SweepVariant("grip-read-A", "top-K content", "grip", True, read_budget, True, "aux supervision confound"),

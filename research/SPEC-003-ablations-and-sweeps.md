@@ -28,7 +28,7 @@ Rows = variants. All at **matched params and matched compute**; all tuned with
 | Variant | selection | grip read | aux sup | purpose |
 |---|---|---|---|---|
 | **dense** | full | — | no | upper reference |
-| **local-only** | window | — | no | cheap floor |
+| **local** | window | — | no | cheap floor |
 | **content-sparse** | top-K content | — | no | the stock baseline grip replaces |
 | **generic-memory** | top-K content | generic mem slots | no | capacity confound |
 | **grip-read (A)** | top-K content | grip, λ=0 | yes | supervision-reshapes-repr confound |

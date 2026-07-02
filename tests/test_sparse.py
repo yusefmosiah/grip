@@ -155,7 +155,7 @@ def test_sparse_forward_is_deterministic_in_eval_mode() -> None:
 
 
 def test_sparse_modes_report_metadata_and_content_sparse_consumes_context() -> None:
-    # Given: local-only and content-sparse models with identical weights.
+    # Given: local and content-sparse models with identical weights.
     torch.manual_seed(7)
     local_model = _tiny_sparse_model(attention_mode="local").eval()
     content_model = _tiny_sparse_model(attention_mode="content_sparse").eval()

@@ -109,7 +109,7 @@ the experiment is stable.
    absent-derivative branch, so the next design should add an explicit Grip
    state channel. Keep the selector-wire branch documented as the counterfactual
    if later probe evidence shows readable derivatives.
-4. Implement local-only attention with trace output.
+4. Implement local attention with trace output.
 5. Implement content-sparse top-K block selection with trace output.
 6. Run M-regime and prove content-sparse has a headroom gap below dense.
 7. Add generic-memory slots.

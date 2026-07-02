@@ -109,7 +109,7 @@ them (`lambda=0` and no hidden path around the selector).
    `grip_recon` keys for `d_conf` and `dd_conf`.
 6. Add trace tests for `selected_blocks`, `selection_scores`, and corrected
    decisive-token recall block-id semantics.
-7. Implement local-only attention.
+7. Implement local attention.
 8. Implement content-sparse top-K selection.
 9. Run M-regime to show content-sparse leaves headroom below dense.
 10. Implement generic-memory, grip-read A, grip-select B, and ablation controls.
