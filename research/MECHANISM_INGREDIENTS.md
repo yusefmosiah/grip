@@ -30,7 +30,7 @@ The repo already has the task and analysis foundation:
 | Derivative probe | `src/grip/analysis/probe.py` | Frozen-backbone linear probes for level vs trajectory variables. |
 | Bypass gate | `src/grip/analysis/bypass.py` | Raw-token leakage test before any model result is interpretable. |
 | Metrics | `src/grip/eval/metrics.py` | Object metrics, reconstruction metrics, MI, and decisive-token recall with explicit position block ids. |
-| Sweep preregistration | `src/grip/eval/sweep_plan.py` | Machine-readable `SPEC-003` sweep matrix and validation. |
+| Sweep declaration | `src/grip/eval/sweep_plan.py` | Machine-readable declaration-only `SPEC-003` sweep matrix and validation. |
 | Stub: sparse models | `src/grip/models/sparse.py` | Placeholder for local/content-sparse/grip-readable/grip-select models. |
 | Stub: trainer | `src/grip/train/run.py` | Must produce artifacts only, not winner claims. |
 | Stub: scorer | `src/grip/eval/score.py` | Must own comparison and winner selection. |

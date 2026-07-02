@@ -41,6 +41,7 @@ class SweepCriteria:
 
 @dataclass(frozen=True, slots=True)
 class SweepPlan:
+    declaration_only: bool
     lead_task: str
     calibration_tasks: tuple[str, ...]
     sizes: tuple[str, ...]
@@ -62,6 +63,7 @@ class SweepPlan:
         variants = tuple(SweepVariant(**variant) for variant in payload["variants"])
         criteria = SweepCriteria(**payload["criteria"])
         return SweepPlan(
+            declaration_only=_bool_field(payload, "declaration_only"),
             lead_task=payload["lead_task"],
             calibration_tasks=tuple(payload["calibration_tasks"]),
             sizes=tuple(payload["sizes"]),
@@ -94,6 +96,7 @@ def default_spec003_plan() -> SweepPlan:
         SweepVariant("grip-select-bottleneck-off", "B unconstrained grip", "grip", True, read_budget, True, "content-leakage check"),
     )
     return SweepPlan(
+        declaration_only=True,
         lead_task="T1-source-reliability-reversal",
         calibration_tasks=("T0-bayesian-evidence-streams",),
         sizes=("1M", "4M", "16M"),
@@ -115,6 +118,9 @@ def default_spec003_plan() -> SweepPlan:
 
 
 def validate_sweep_plan(plan: SweepPlan) -> None:
+    if plan.declaration_only is not True:
+        msg = "SPEC-003 sweep plan is declaration-only and is not consumed by m_regime_sweep"
+        raise SweepPlanError(msg)
     variant_names = [variant.name for variant in plan.variants]
     names = set(variant_names)
     if len(variant_names) != len(names):
@@ -178,6 +184,14 @@ def _validate_matched_budget(plan: SweepPlan) -> None:
     if len(budgets) != 1:
         msg = "A, B, and content-sparse must have matched read budget"
         raise SweepPlanError(msg)
+
+
+def _bool_field(payload, field: str) -> bool:
+    value = payload[field]
+    if isinstance(value, bool):
+        return value
+    msg = f"{field} must be a JSON boolean"
+    raise SweepPlanError(msg)
 
 
 def write_sweep_plan(plan: SweepPlan, out_dir: Path) -> Path:

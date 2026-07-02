@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 
 import pytest
 
@@ -36,6 +37,7 @@ def test_default_spec003_plan_contains_core_ablation_matrix():
 
     # Then: every core backdoor-closing variant is present.
     assert names == SPEC003_CORE_VARIANTS
+    assert plan.declaration_only is True
     assert plan.lead_task == "T1-source-reliability-reversal"
     assert plan.read_k == (4, 8, 16)
     assert plan.grip_r == (2, 4)
@@ -46,6 +48,7 @@ def test_validate_sweep_plan_rejects_missing_variant():
     # Given: a plan with one core variant removed.
     plan = default_spec003_plan()
     incomplete = SweepPlan(
+        declaration_only=plan.declaration_only,
         lead_task=plan.lead_task,
         calibration_tasks=plan.calibration_tasks,
         sizes=plan.sizes,
@@ -74,6 +77,7 @@ def test_validate_sweep_plan_requires_matched_budget_for_comparison_variants():
         for variant in plan.variants
     )
     broken = SweepPlan(
+        declaration_only=plan.declaration_only,
         lead_task=plan.lead_task,
         calibration_tasks=plan.calibration_tasks,
         sizes=plan.sizes,
@@ -154,6 +158,26 @@ def test_validate_sweep_plan_rejects_duplicate_variants():
         validate_sweep_plan(duplicated)
 
 
+def test_validate_sweep_plan_requires_declaration_only_boundary():
+    # Given: a SPEC-003 plan incorrectly marked as runner-consumable.
+    plan = replace(default_spec003_plan(), declaration_only=False)
+
+    # When / Then: validation preserves the declaration-only contract.
+    with pytest.raises(SweepPlanError, match="declaration-only"):
+        validate_sweep_plan(plan)
+
+
+def test_sweep_plan_from_json_rejects_truthy_non_bool_declaration_only():
+    # Given: a serialized plan with a truthy non-boolean declaration marker.
+    plan = default_spec003_plan()
+    payload = json.loads(plan.to_json())
+    payload["declaration_only"] = "false"
+
+    # When / Then: parsing rejects it before validation can treat it as true.
+    with pytest.raises(SweepPlanError, match="JSON boolean"):
+        SweepPlan.from_json(json.dumps(payload))
+
+
 def test_write_sweep_plan_emits_preregistered_json(tmp_path):
     # Given: a valid SPEC-003 plan.
     plan = default_spec003_plan()
@@ -164,4 +188,5 @@ def test_write_sweep_plan_emits_preregistered_json(tmp_path):
     # Then: the artifact can be reloaded and validated.
     loaded = SweepPlan.from_json(path.read_text())
     assert loaded == plan
+    assert loaded.declaration_only is True
     assert validate_sweep_plan(loaded) is None
