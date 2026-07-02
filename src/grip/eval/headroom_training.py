@@ -28,6 +28,7 @@ class TrainingDataError(ValueError):
 class TrainingTokenBatch:
     seed: int
     tokens: torch.Tensor
+    real_mask: torch.Tensor | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,21 +88,25 @@ def training_batch(
 def training_token_batches(request: TrainingBatchRequest) -> tuple[TrainingTokenBatch, ...]:
     if request.steps >= TRAINING_SEED_STRIDE:
         raise TrainingDataError("steps", "must be below the per-run seed stride")
-    return tuple(
-        TrainingTokenBatch(
+    batches: list[TrainingTokenBatch] = []
+    for step_seed in _step_seeds(request.seed, request.steps):
+        batch = training_batch(
+            task=request.task,
+            seq_len=request.seq_len,
+            vocab_size=request.vocab_size,
+            n_hypotheses=request.n_hypotheses,
+            batch_size=request.batch_size,
             seed=step_seed,
-            tokens=training_tokens(
-                task=request.task,
-                seq_len=request.seq_len,
-                vocab_size=request.vocab_size,
-                n_hypotheses=request.n_hypotheses,
-                batch_size=request.batch_size,
-                seed=step_seed,
-                device=request.device,
-            ),
+            device=request.device,
         )
-        for step_seed in _step_seeds(request.seed, request.steps)
-    )
+        batches.append(
+            TrainingTokenBatch(
+                seed=step_seed,
+                tokens=batch["tokens"],
+                real_mask=batch["real_mask"],
+            )
+        )
+    return tuple(batches)
 
 
 def _step_seeds(run_seed: int, steps: int) -> range:
@@ -150,10 +155,12 @@ def train_model(
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     for step, batch in enumerate(batches, start=1):
-        out = model(batch.tokens)
-        loss = F.cross_entropy(
-            out["lm_logits"][:, :-1].reshape(-1, config.vocab_size),
-            batch.tokens[:, 1:].reshape(-1),
+        out = model(batch.tokens, real_mask=batch.real_mask)
+        loss = next_token_loss(
+            logits=out["lm_logits"],
+            tokens=batch.tokens,
+            real_mask=batch.real_mask,
+            vocab_size=config.vocab_size,
         )
         optimizer.zero_grad()
         loss.backward()
@@ -169,6 +176,24 @@ def train_model(
             )
         )
     return tuple(records)
+
+
+def next_token_loss(
+    *,
+    logits: torch.Tensor,
+    tokens: torch.Tensor,
+    real_mask: torch.Tensor | None,
+    vocab_size: int,
+) -> torch.Tensor:
+    per_token = F.cross_entropy(
+        logits[:, :-1].reshape(-1, vocab_size),
+        tokens[:, 1:].reshape(-1),
+        reduction="none",
+    ).reshape_as(tokens[:, 1:])
+    if real_mask is None:
+        return per_token.mean()
+    target_mask = real_mask[:, 1:].to(device=per_token.device, dtype=per_token.dtype)
+    return (per_token * target_mask).sum() / target_mask.sum().clamp_min(1.0)
 
 
 def _train_record(

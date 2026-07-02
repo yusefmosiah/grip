@@ -238,6 +238,22 @@ def test_block_summaries_match_compact_causal_prefix_means() -> None:
     assert torch.equal(summaries.token_blocks, torch.tensor([0, 0, 1, 1, 2]))
 
 
+def test_block_summaries_ignore_padding_mask() -> None:
+    # Given: hidden states whose last block contains one real token and one PAD token.
+    model = _tiny_sparse_model()
+    hidden = torch.tensor([[[1.0, 1.0], [3.0, 3.0], [5.0, 5.0], [100.0, 100.0]]])
+    real_mask = torch.tensor([[True, True, True, False]])
+
+    # When: block summaries are computed with the real-token mask.
+    summaries = model._summarize_blocks(hidden, real_mask=real_mask)
+
+    # Then: the padded vector is excluded from full-block and prefix summaries.
+    expected_full = torch.tensor([[[2.0, 2.0], [5.0, 5.0]]])
+    expected_current_prefix = torch.tensor([[[1.0, 1.0], [2.0, 2.0], [5.0, 5.0], [5.0, 5.0]]])
+    assert torch.equal(summaries.full, expected_full)
+    assert torch.equal(summaries.current_prefix, expected_current_prefix)
+
+
 def test_content_sparse_hidden_depends_on_selected_block_ids() -> None:
     class PreferBlock(ContentSparseTransformer):
         def __init__(self, preferred_block: int):

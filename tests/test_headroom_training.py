@@ -7,6 +7,7 @@ from grip.eval.headroom_training import (
     TrainingBatchRequest,
     TrainingLoopConfig,
     TrainingTokenBatch,
+    next_token_loss,
     train_model,
     training_token_batches,
     training_tokens,
@@ -135,3 +136,28 @@ def test_train_model_decreases_loss_on_repeated_cpu_batch() -> None:
     # Then: the training path performs optimizer steps that reduce CE loss.
     losses = [float(record["loss"]["total"]) for record in records]
     assert losses[-1] < losses[0] * 0.25
+
+
+def test_next_token_loss_ignores_padded_targets() -> None:
+    # Given: logits for one padded sequence and its unpadded prefix.
+    torch.manual_seed(3)
+    logits = torch.randn(1, 5, 7)
+    tokens = torch.tensor([[1, 2, 3, 4, 0]])
+    real_mask = torch.tensor([[True, True, True, True, False]])
+
+    # When: next-token loss is computed with the real-token mask.
+    padded_loss = next_token_loss(
+        logits=logits,
+        tokens=tokens,
+        real_mask=real_mask,
+        vocab_size=7,
+    )
+    prefix_loss = next_token_loss(
+        logits=logits[:, :4],
+        tokens=tokens[:, :4],
+        real_mask=torch.ones((1, 4), dtype=torch.bool),
+        vocab_size=7,
+    )
+
+    # Then: padding does not change the measured loss.
+    assert torch.allclose(padded_loss, prefix_loss)

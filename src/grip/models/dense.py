@@ -34,14 +34,17 @@ class _Block(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
         self.drop = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, real_mask: torch.Tensor | None = None) -> torch.Tensor:
         B, T, C = x.shape
         h = self.norm1(x)
         qkv = self.qkv(h).reshape(B, T, self.n_heads, 3 * self.d_head)
         qkv = qkv.transpose(1, 2)  # [B, n_heads, T, 3*d_head]
         q, k, v = qkv.chunk(3, dim=-1)
-        # causal SDPA — the MPS-supported path. is_causal=True builds the mask internally.
-        attn = F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=0.0)
+        if real_mask is None:
+            attn = F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=0.0)
+        else:
+            attn_mask = _causal_key_mask(real_mask, T)
+            attn = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask, dropout_p=0.0)
         attn = attn.transpose(1, 2).reshape(B, T, C)
         x = x + self.drop(self.out(attn))
         x = x + self.drop(self.ff(self.norm2(x)))
@@ -86,13 +89,13 @@ class DenseTransformer(nn.Module):
         self.lm_head.weight = self.tok.weight
         self.aux_posterior = nn.Linear(d_model, n_hypotheses)
 
-    def forward(self, tokens: torch.Tensor) -> dict:
+    def forward(self, tokens: torch.Tensor, real_mask: torch.Tensor | None = None) -> dict:
         """tokens: long[B,T] -> dict(lm_logits, posterior, hidden)."""
         B, T = tokens.shape
         pos = torch.arange(T, device=tokens.device)
         x = self.tok(tokens) + self.pos(pos)[None, :, :]
         for block in self.blocks:
-            x = block(x)
+            x = block(x, real_mask=real_mask)
         x = self.norm_f(x)
         return {
             "lm_logits": self.lm_head(x),                 # [B,T,V]
@@ -102,3 +105,9 @@ class DenseTransformer(nn.Module):
 
     def n_params(self) -> int:
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
+
+def _causal_key_mask(real_mask: torch.Tensor, seq_len: int) -> torch.Tensor:
+    positions = torch.arange(seq_len, device=real_mask.device)
+    causal = positions[None, :] <= positions[:, None]
+    return causal.reshape(1, 1, seq_len, seq_len) & real_mask.reshape(real_mask.shape[0], 1, 1, seq_len)

@@ -38,6 +38,27 @@ def test_posterior_is_simplex():
     assert torch.allclose(post.sum(-1), torch.ones(post.shape[:-1]), atol=1e-5)
 
 
+def test_dense_masked_padding_matches_unpadded_prefix():
+    torch.manual_seed(5)
+    model = DenseTransformer(
+        vocab_size=8,
+        d_model=16,
+        n_heads=2,
+        n_layers=1,
+        max_seq_len=6,
+        n_hypotheses=2,
+    ).eval()
+    prefix = torch.tensor([[1, 2, 3, 4]], dtype=torch.long)
+    padded = torch.tensor([[1, 2, 3, 4, 0, 0]], dtype=torch.long)
+    real_mask = torch.tensor([[True, True, True, True, False, False]])
+
+    with torch.no_grad():
+        prefix_out = model(prefix)["hidden"]
+        padded_out = model(padded, real_mask=real_mask)["hidden"][:, :4]
+
+    assert torch.allclose(padded_out, prefix_out, atol=1e-6)
+
+
 def test_runs_on_mps_if_available():
     if not torch.backends.mps.is_available():
         pytest.skip("MPS not available")

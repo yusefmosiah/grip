@@ -126,21 +126,27 @@ class ContentSparseTransformer(nn.Module):
             block_summaries,
         )
 
-    def forward(self, tokens: torch.Tensor) -> dict[str, torch.Tensor | SparseMetadata | None]:
+    def forward(
+        self,
+        tokens: torch.Tensor,
+        real_mask: torch.Tensor | None = None,
+    ) -> dict[str, torch.Tensor | SparseMetadata | None]:
         """-> dict with 'lm_logits','posterior','hidden', and 'selected_blocks'[B,T,top_k]."""
         batch_size, seq_len = tokens.shape
         if seq_len > self.max_seq_len:
             raise SparseConfigError("tokens", "sequence length exceeds max_seq_len")
+        if real_mask is not None and real_mask.shape != tokens.shape:
+            raise SparseConfigError("real_mask", "must match tokens shape")
         pos = torch.arange(seq_len, device=tokens.device)
         hidden = self.tok(tokens) + self.pos(pos)[None, :, :]
         for block in self.blocks:
-            hidden = block(hidden)
+            hidden = block(hidden, real_mask=real_mask)
         hidden = self.norm_f(hidden)
         exposes_grip = self._exposes_grip()
         grip_state = self._grip_state(hidden) if exposes_grip else None
-        block_summaries = self._summarize_blocks(hidden)
+        block_summaries = self._summarize_blocks(hidden, real_mask=real_mask)
         grip_summaries = (
-            self._summarize_blocks(self._grip_read_features(grip_state))
+            self._summarize_blocks(self._grip_read_features(grip_state), real_mask=real_mask)
             if grip_state is not None
             else None
         )
@@ -264,5 +270,9 @@ class ContentSparseTransformer(nn.Module):
     ) -> torch.Tensor:
         return selected_block_context(block_summaries, selection_scores, selected_blocks)
 
-    def _summarize_blocks(self, hidden: torch.Tensor) -> CausalBlockSummaries:
-        return causal_block_summaries(hidden, self.block_size)
+    def _summarize_blocks(
+        self,
+        hidden: torch.Tensor,
+        real_mask: torch.Tensor | None = None,
+    ) -> CausalBlockSummaries:
+        return causal_block_summaries(hidden, self.block_size, real_mask=real_mask)

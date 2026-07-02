@@ -65,13 +65,15 @@ class LocalCausalBlock(nn.Module):
         self.norm1 = nn.LayerNorm(config.d_model)
         self.norm2 = nn.LayerNorm(config.d_model)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, real_mask: torch.Tensor | None = None) -> torch.Tensor:
         batch_size, seq_len, channels = x.shape
         h = self.norm1(x)
         qkv = self.qkv(h).reshape(batch_size, seq_len, self.n_heads, 3 * self.d_head)
         qkv = qkv.transpose(1, 2)
         query, key, value = qkv.chunk(3, dim=-1)
         attn_mask = local_causal_mask(seq_len, self.window, x.device)
+        if real_mask is not None:
+            attn_mask = attn_mask.reshape(1, 1, seq_len, seq_len) & real_mask.reshape(batch_size, 1, 1, seq_len)
         attn = F.scaled_dot_product_attention(
             query,
             key,
@@ -104,24 +106,40 @@ def future_block_mask(hidden: torch.Tensor, block_size: int) -> torch.Tensor:
     return block_ids.reshape(1, 1, num_blocks) > query_blocks[..., None]
 
 
-def causal_block_summaries(hidden: torch.Tensor, block_size: int) -> CausalBlockSummaries:
+def causal_block_summaries(
+    hidden: torch.Tensor,
+    block_size: int,
+    real_mask: torch.Tensor | None = None,
+) -> CausalBlockSummaries:
     batch_size, seq_len, channels = hidden.shape
     num_blocks = (seq_len + block_size - 1) // block_size
     positions = torch.arange(seq_len, device=hidden.device)
     block_ids = positions // block_size
+    if real_mask is None:
+        real_weights = hidden.new_ones(batch_size, seq_len)
+    else:
+        real_weights = real_mask.to(device=hidden.device, dtype=hidden.dtype)
+    masked_hidden = hidden * real_weights.unsqueeze(-1)
     block_totals = hidden.new_zeros(batch_size, num_blocks, channels)
-    block_totals.index_add_(1, block_ids, hidden)
-    block_counts = torch.bincount(block_ids, minlength=num_blocks).to(hidden.dtype).clamp_min(1)
-    full = block_totals / block_counts.reshape(1, num_blocks, 1)
-    prefix_totals = hidden.cumsum(dim=1)
+    block_totals.index_add_(1, block_ids, masked_hidden)
+    block_counts = hidden.new_zeros(batch_size, num_blocks)
+    block_counts.index_add_(1, block_ids, real_weights)
+    full = block_totals / block_counts.clamp_min(1).reshape(batch_size, num_blocks, 1)
+    prefix_totals = masked_hidden.cumsum(dim=1)
+    prefix_counts = real_weights.cumsum(dim=1)
     block_starts = block_ids * block_size
     prior_index = (block_starts - 1).clamp_min(0)
     prior_totals = prefix_totals[:, prior_index, :]
+    prior_counts = prefix_counts[:, prior_index]
     has_prior = (block_starts > 0).reshape(1, seq_len, 1)
     zero_prior = torch.zeros_like(prior_totals)
     current_totals = prefix_totals - torch.where(has_prior, prior_totals, zero_prior)
-    current_counts = (positions - block_starts + 1).to(hidden.dtype)
-    current_prefix = current_totals / current_counts.reshape(1, seq_len, 1)
+    current_counts = prefix_counts - torch.where(
+        has_prior.squeeze(-1),
+        prior_counts,
+        torch.zeros_like(prior_counts),
+    )
+    current_prefix = current_totals / current_counts.clamp_min(1).reshape(batch_size, seq_len, 1)
     return CausalBlockSummaries(full=full, current_prefix=current_prefix, token_blocks=block_ids)
 
 

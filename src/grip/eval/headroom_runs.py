@@ -5,12 +5,10 @@ from pathlib import Path
 from typing import Mapping
 
 import torch
-import torch.nn.functional as F
-
 from grip.models import ContentSparseTransformer, DenseTransformer
 
 from .compute import compute_budget, compute_payload
-from .headroom_training import BatchTensors, TrainingLoopConfig, TrainingTokenBatch, train_model
+from .headroom_training import BatchTensors, TrainingLoopConfig, TrainingTokenBatch, next_token_loss, train_model
 from .headroom_types import BaselineSpec, HeadroomConfigError, MRegimeConfig, ResolvedJson
 from .m_regime_validity import run_tier, run_validity
 from .selection_diagnostics import write_selection_diagnostics
@@ -57,11 +55,14 @@ def _write_baseline(
     )
     model.eval()
     eval_tokens = eval_batch["tokens"]
+    eval_real_mask = eval_batch["real_mask"]
     with torch.no_grad():
-        out = model(eval_tokens)
-        loss = F.cross_entropy(
-            out["lm_logits"][:, :-1].reshape(-1, config.vocab_size),
-            eval_tokens[:, 1:].reshape(-1),
+        out = model(eval_tokens, real_mask=eval_real_mask)
+        loss = next_token_loss(
+            logits=out["lm_logits"],
+            tokens=eval_tokens,
+            real_mask=eval_real_mask,
+            vocab_size=config.vocab_size,
         )
     compute = compute_budget(model, eval_tokens, read_budget=spec.read_budget)
     if spec.attention_mode is not None and spec.read_budget is not None:
