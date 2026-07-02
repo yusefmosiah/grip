@@ -114,6 +114,11 @@ state to selection scoring).
   `tests/test_sparse.py` against the new mechanism.
 
 ### P0.6 Add compute matching
+**Status.** DONE in `8326337` (headroom eval artifacts now write compute
+payloads; scorer-owned comparison reports include per-run compute,
+`compute_tolerance`, and `compute_mismatches`; preregistered comparisons are
+blocked on mismatched parameter count, estimated forward FLOPs, or read
+budget).
 **Problem.** README/GLOSSARY claim matched-compute comparisons; nothing in the
 code measures or matches compute.
 **Fix.** Add a FLOPs (or measured wall-clock + parameter-count) accounting
