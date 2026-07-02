@@ -198,6 +198,10 @@ old seed modulo cycle.
   seed-derived and cyclic. Draw the label from the seeded RNG instead.
 
 ### P2.2 Padding
+**Status.** DONE in `598acf0` (`real_mask` now flows through M-regime training
+batches, dense/sparse forwards, masked next-token CE loss, local attention key
+masks, and sparse block summaries; tests cover padded-loss equivalence,
+dense masked-prefix equivalence, and padded block-summary exclusion).
 `real_mask` exists in collate (`collate.py:33-37`) but nothing consumes it:
 PAD=0 is attended normally, enters block summaries and selection, and padded
 positions are included in train/eval cross-entropy
