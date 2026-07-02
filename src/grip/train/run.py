@@ -1,18 +1,19 @@
-"""Minimal training loop.
+"""Minimal training artifact writer.
 
 The trainer's job: produce artifacts (checkpoint, JSONL log, eval tensors).
 The trainer does NOT decide who won — that's eval/score.py's job.
 
-Accepts a config dict (or YAML path). Configs are reproducibility: same config
-+ same seed => same run (modulo MPS nondeterminism, which we log).
+Accepts a config dict or JSON config path. Configs are reproducibility: same
+config + same seed => same run.
 """
 from __future__ import annotations
 
+import argparse
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
 import subprocess
-from typing import Mapping, TypeAlias
+from typing import Mapping, Sequence, TypeAlias
 
 JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = JsonScalar | Mapping[str, JsonScalar]
@@ -106,6 +107,16 @@ def train(config: RunConfig | Mapping[str, JsonValue], run_dir: str | Path = "ru
         encoding="utf-8",
     )
     return out_dir
+
+
+def load_run_config(path: Path) -> Mapping[str, JsonValue]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ConfigError("root", "config", "must be valid JSON") from exc
+    if not isinstance(raw, Mapping):
+        raise ConfigError("root", "config", "must be a JSON object")
+    return raw
 
 
 def parse_run_config(config: Mapping[str, JsonValue]) -> RunConfig:
@@ -235,8 +246,15 @@ def _git_sha() -> str:
     return result.stdout.strip()
 
 
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("config", type=Path)
+    parser.add_argument("run_dir", type=Path)
+    args = parser.parse_args(argv)
+    run_dir = train(load_run_config(args.config), args.run_dir)
+    print(run_dir)
+    return 0
+
+
 if __name__ == "__main__":
-    raise SystemExit(
-        "Call via: python -m grip.train.run <config.yaml>. "
-        "Config loader + CLI to be added by CODEX."
-    )
+    raise SystemExit(main())

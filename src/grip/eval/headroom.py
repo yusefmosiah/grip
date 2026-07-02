@@ -46,6 +46,7 @@ def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
     run_dirs = write_baselines(config, train_batches, eval_batch)
     comparison = compare(
         run_dirs,
+        config.out_dir / "comparison.json",
         noise_floor_path=config.noise_floor_path,
         preregistered=config.preregistered,
     )

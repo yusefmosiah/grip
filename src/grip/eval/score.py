@@ -1,6 +1,6 @@
 """Score one or more runs and emit the comparison. Separate from training.
 
-Usage: python -m grip.eval.score run_dir1 run_dir2 ...
+Usage: python -m grip.eval.score run_dir1 run_dir2 --output comparison.json
 Reads each run's eval tensors + config, computes all metrics, writes a
 comparison JSON. This is where 'who won' is decided — never in the trainer.
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import argparse
 from typing import Final, Mapping, Sequence
 
 from .noise_floor import is_number, load_noise_floor
@@ -72,15 +73,16 @@ def _metrics_from_eval_artifact(path: Path) -> Mapping[str, float]:
 
 def compare(
     runs: Sequence[Path],
+    output_path: Path,
     noise_floor_path: Path | None = None,
     *,
     preregistered: bool = False,
     compute_tolerance: float = DEFAULT_COMPUTE_TOLERANCE,
 ) -> ComparisonReport:
     if not runs:
-        raise ScoreArtifactError(Path("comparison.json"), "at least one run is required")
+        raise ScoreArtifactError(output_path, "at least one run is required")
     if compute_tolerance < 0:
-        raise ScoreArtifactError(Path("comparison.json"), "compute_tolerance must be non-negative")
+        raise ScoreArtifactError(output_path, "compute_tolerance must be non-negative")
     scores = tuple(score_run(run_dir) for run_dir in runs)
     compute_mismatch_fields = compute_mismatches(scores, compute_tolerance)
     noise_floor: NoiseFloorArtifact | None = None
@@ -120,8 +122,8 @@ def compare(
         compute_mismatches=compute_mismatch_fields,
         validity_failures=validity_failures,
     )
-    comparison_path = runs[0].parent / "comparison.json"
-    comparison_path.write_text(report.to_json_text(), encoding="utf-8")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(report.to_json_text(), encoding="utf-8")
     return report
 
 
@@ -236,5 +238,24 @@ def _field_value(payload: Mapping[str, JsonValue], path: tuple[str, ...]) -> Jso
     return current
 
 
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("run_dirs", nargs="+", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--noise-floor", type=Path)
+    parser.add_argument("--preregistered", action="store_true")
+    parser.add_argument("--compute-tolerance", type=float, default=DEFAULT_COMPUTE_TOLERANCE)
+    args = parser.parse_args(argv)
+    compare(
+        args.run_dirs,
+        args.output,
+        noise_floor_path=args.noise_floor,
+        preregistered=args.preregistered,
+        compute_tolerance=args.compute_tolerance,
+    )
+    print(args.output)
+    return 0
+
+
 if __name__ == "__main__":
-    raise SystemExit("CODEX: wire CLI args -> compare([Path(a) for a in argv[1:]])")
+    raise SystemExit(main())

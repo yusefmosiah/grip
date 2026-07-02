@@ -18,7 +18,7 @@ def test_compare_records_compute_in_comparison_report(tmp_path: Path) -> None:
     noise_floor_path = write_noise_floor(tmp_path / "noise-floor.json")
 
     # When: the comparison is written.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
 
     # Then: each run carries compute accounting into the scorer-owned report.
     assert report.interpretable is True
@@ -41,7 +41,7 @@ def test_compare_blocks_compute_mismatch_above_tolerance(tmp_path: Path) -> None
     noise_floor_path = write_noise_floor(tmp_path / "noise-floor.json")
 
     # When: the comparison is explicitly marked preregistered.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
 
     # Then: compute mismatch blocks interpretation before any winner claim.
     assert report.interpretable is False
@@ -56,7 +56,7 @@ def test_compare_blocks_read_budget_mismatch(tmp_path: Path) -> None:
     noise_floor_path = write_noise_floor(tmp_path / "noise-floor.json")
 
     # When: the comparison is explicitly marked preregistered.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
 
     # Then: read-budget mismatch blocks interpretation as a compute mismatch.
     assert report.interpretable is False

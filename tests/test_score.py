@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from grip.eval.score import compare, load_noise_floor, score_run
+from grip.eval.score import compare, load_noise_floor, main, score_run
 
 from score_fixtures import write_noise_floor as _write_noise_floor
 from score_fixtures import write_run as _write_run
@@ -33,7 +33,7 @@ def test_compare_marks_missing_noise_floor_non_interpretable(tmp_path: Path) -> 
     run_b = _write_run(tmp_path / "run-b", {"accuracy": 0.74})
 
     # When: the comparison is written.
-    report = compare([run_a, run_b])
+    report = compare([run_a, run_b], tmp_path / "comparison.json")
 
     # Then: the comparison exists but cannot claim interpretable signal.
     assert report.interpretable is False
@@ -43,6 +43,35 @@ def test_compare_marks_missing_noise_floor_non_interpretable(tmp_path: Path) -> 
     assert saved["reason"] == "noise_floor_missing"
 
 
+def test_compare_writes_only_explicit_output_path(tmp_path: Path) -> None:
+    # Given: two scored runs and an explicit comparison path outside the run parent.
+    run_a = _write_run(tmp_path / "runs" / "run-a", {"accuracy": 0.70})
+    run_b = _write_run(tmp_path / "runs" / "run-b", {"accuracy": 0.74})
+    output_path = tmp_path / "reports" / "comparison.json"
+
+    # When: the comparison is written.
+    compare([run_a, run_b], output_path)
+
+    # Then: the scorer writes only the requested artifact path.
+    assert output_path.exists()
+    assert not (tmp_path / "runs" / "comparison.json").exists()
+
+
+def test_score_cli_writes_explicit_output_path(tmp_path: Path, capsys) -> None:
+    # Given: two scored runs and a CLI output path.
+    run_a = _write_run(tmp_path / "run-a", {"accuracy": 0.70})
+    run_b = _write_run(tmp_path / "run-b", {"accuracy": 0.74})
+    output_path = tmp_path / "cli" / "comparison.json"
+
+    # When: the score CLI is invoked.
+    exit_code = main([str(run_a), str(run_b), "--output", str(output_path)])
+
+    # Then: it writes the requested comparison and prints its path.
+    assert exit_code == 0
+    assert Path(capsys.readouterr().out.strip()) == output_path
+    assert json.loads(output_path.read_text(encoding="utf-8"))["reason"] == "noise_floor_missing"
+
+
 def test_compare_keeps_valid_noise_floor_non_interpretable_without_preregistration(tmp_path: Path) -> None:
     # Given: two scored runs and a valid N>=8 M-noise-floor artifact.
     run_a = _write_run(tmp_path / "run-a", {"accuracy": 0.70})
@@ -50,7 +79,7 @@ def test_compare_keeps_valid_noise_floor_non_interpretable_without_preregistrati
     noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
 
     # When: the comparison is written with noise-floor evidence.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path)
 
     # Then: the report records the noise-floor ceiling but cannot claim signal.
     assert report.interpretable is False
@@ -67,7 +96,7 @@ def test_compare_allows_preregistered_interpretation_with_valid_noise_floor(tmp_
     noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
 
     # When: the comparison is explicitly marked preregistered.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
 
     # Then: the noise-floor gate authorizes interpretation.
     assert report.interpretable is True
@@ -82,7 +111,7 @@ def test_compare_blocks_preregistered_noise_floor_without_run_metric_coverage(tm
     noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
 
     # When: the comparison is explicitly marked preregistered.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
 
     # Then: missing metric coverage still blocks interpretation.
     assert report.interpretable is False
@@ -99,7 +128,7 @@ def test_compare_blocks_mismatched_noise_floor_config(tmp_path: Path) -> None:
     noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
 
     # When: the comparison is explicitly marked preregistered.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
 
     # Then: the scorer blocks interpretation and names the mismatched fields.
     assert report.interpretable is False
@@ -121,7 +150,7 @@ def test_compare_blocks_smoke_tier_runs(tmp_path: Path) -> None:
     noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
 
     # When: the comparison is explicitly marked preregistered.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
 
     # Then: smoke-tier artifacts cannot authorize interpretation.
     assert report.interpretable is False
@@ -176,7 +205,7 @@ def test_compare_does_not_require_noise_floor_for_token_bookkeeping(tmp_path: Pa
     noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
 
     # When: the comparison is explicitly marked preregistered.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
 
     # Then: token bookkeeping does not block loss-covered interpretation.
     assert report.interpretable is True
@@ -193,7 +222,7 @@ def test_compare_blocks_threshold_only_noise_floor_metric(tmp_path: Path) -> Non
     noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
 
     # When: the comparison is explicitly marked preregistered.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
 
     # Then: threshold-only coverage does not authorize interpretation.
     assert report.interpretable is False
@@ -207,7 +236,7 @@ def test_compare_rejects_below_floor_noise_artifact_without_raising(tmp_path: Pa
     noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json", seed_count=7)
 
     # When: the comparison is written with invalid noise-floor evidence.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path)
 
     # Then: the comparison is explicitly non-interpretable.
     assert report.interpretable is False
@@ -227,7 +256,7 @@ def test_compare_rejects_short_metric_delta_series_without_raising(tmp_path: Pat
     noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
 
     # When: the comparison is written with stale noise-floor evidence.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path)
 
     # Then: the comparison is explicitly non-interpretable.
     assert report.interpretable is False
@@ -242,7 +271,7 @@ def test_compare_rejects_malformed_noise_artifact_without_raising(tmp_path: Path
     noise_floor_path.write_text("{not json", encoding="utf-8")
 
     # When: the comparison is written with malformed noise-floor evidence.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path)
 
     # Then: the comparison is explicitly non-interpretable.
     assert report.interpretable is False
@@ -269,7 +298,7 @@ def test_load_noise_floor_requires_complete_authority_schema(tmp_path: Path) -> 
     # When: the comparison is written with incomplete noise-floor evidence.
     run_a = _write_run(tmp_path / "run-a", {"accuracy": 0.70})
     run_b = _write_run(tmp_path / "run-b", {"accuracy": 0.74})
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path)
 
     # Then: the incomplete schema cannot authorize interpretation.
     assert report.interpretable is False
@@ -286,7 +315,7 @@ def test_compare_rejects_stale_metric_ceiling_without_raising(tmp_path: Path) ->
     noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
 
     # When: the comparison is written with stale noise-floor evidence.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path)
 
     # Then: the comparison is explicitly non-interpretable.
     assert report.interpretable is False
@@ -303,7 +332,7 @@ def test_load_noise_floor_rejects_boolean_metric_values(tmp_path: Path) -> None:
     run_b = _write_run(tmp_path / "run-b", {"accuracy": 0.74})
 
     # When: the comparison is written with invalid numeric evidence.
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path)
 
     # Then: the comparison is explicitly non-interpretable.
     assert report.interpretable is False
@@ -337,6 +366,6 @@ def test_load_noise_floor_rejects_degenerate_metric_spread(tmp_path: Path) -> No
     # When / Then: loading rejects the degenerate calibration.
     run_a = _write_run(tmp_path / "run-a", {"accuracy": 0.70})
     run_b = _write_run(tmp_path / "run-b", {"accuracy": 0.74})
-    report = compare([run_a, run_b], noise_floor_path=noise_floor_path)
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path)
     assert report.interpretable is False
     assert report.reason == "noise_floor_invalid"

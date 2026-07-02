@@ -14,7 +14,7 @@ def write_run(
     estimated_forward_flops: int = 2_000,
     read_budget: int | None = None,
 ) -> Path:
-    run_dir.mkdir()
+    run_dir.mkdir(parents=True)
     (run_dir / "metrics.json").write_text(json.dumps(dict(metrics)), encoding="utf-8")
     (run_dir / "config.resolved.json").write_text(
         json.dumps(run_config(run_dir.name, valid=valid), indent=2, sort_keys=True) + "\n",

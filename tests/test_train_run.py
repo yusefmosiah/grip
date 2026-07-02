@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from grip.eval.score import score_run
-from grip.train.run import ConfigError, DataConfig, ModelConfig, RunConfig, RunSettings, TrainConfig, train
+from grip.train.run import ConfigError, DataConfig, ModelConfig, RunConfig, RunSettings, TrainConfig, main, train
 
 
 def _smoke_config() -> dict:
@@ -66,6 +66,22 @@ def test_train_artifacts_do_not_claim_winners(tmp_path: Path) -> None:
     assert "winner" not in joined
     assert "wins" not in joined
     assert "beats" not in joined
+
+
+def test_train_cli_reads_json_config_and_writes_run_dir(tmp_path: Path, capsys) -> None:
+    # Given: a JSON config file for the fenced stub trainer.
+    config_path = tmp_path / "config.json"
+    run_dir = tmp_path / "cli-run"
+    config_path.write_text(json.dumps(_smoke_config()), encoding="utf-8")
+
+    # When: the train CLI is invoked.
+    exit_code = main([str(config_path), str(run_dir)])
+
+    # Then: it writes artifacts and prints the run directory.
+    assert exit_code == 0
+    assert Path(capsys.readouterr().out.strip()) == run_dir
+    assert (run_dir / "config.resolved.json").exists()
+    assert score_run(run_dir).metrics == {"loss": 0.0, "tokens": 0.0}
 
 
 @pytest.mark.parametrize("model_name", ["grip-read-A", "grip-select-B"])
