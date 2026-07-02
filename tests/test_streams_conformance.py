@@ -10,7 +10,6 @@ It encodes the non-negotiables from SPEC-000 and SPEC-001:
   - latents are first-class fields with correct shapes
   - posterior is a valid simplex, sums to 1, non-negative
   - d_conf / dd_conf are finite and consistent with the posterior
-  - block_boundaries partitions [0, T)
   - mutual_info(source_trust, answer) is near zero (the T1 leakage guard,
     checked loosely here as a sanity check; the rigorous version lives in eval)
   - HISTORY-DEPENDENCE: the same token id moves belief differently across
@@ -56,7 +55,6 @@ REQ_FIELDS = {
     "source_idx": (np.ndarray, 1),
     "source_trust": (np.ndarray, 2),
     "decisive_idx": (np.ndarray, 1),
-    "block_boundaries": (np.ndarray, 1),
 }
 
 
@@ -196,15 +194,6 @@ def test_decisive_idx_shape_and_binary(sample):
     assert d.shape == (STREAM_KW["seq_len"],)
     vals = set(np.unique(d).tolist())
     assert vals.issubset({0, 1}), f"decisive_idx must be 0/1, got {vals}"
-
-
-def test_block_boundaries_partition(sample):
-    b = sample.block_boundaries
-    assert b.ndim == 1
-    assert b[0] == 0
-    assert b[-1] == STREAM_KW["seq_len"]
-    assert np.all(np.diff(b) > 0), "boundaries strictly increasing"
-    assert np.all(b >= 0) and np.all(b <= STREAM_KW["seq_len"])
 
 
 def test_source_trust_shape(sample):

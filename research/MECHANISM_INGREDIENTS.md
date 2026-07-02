@@ -24,7 +24,7 @@ The repo already has the task and analysis foundation:
 
 | Area | Local artifact | Role |
 |---|---|---|
-| Stream generator | `src/grip/data/streams.py` | Emits fixed-length Bayesian evidence streams with posterior, entropy, `d_conf`, `dd_conf`, source trust, decisive positions, and block boundaries. |
+| Stream generator | `src/grip/data/streams.py` | Emits fixed-length Bayesian evidence streams with posterior, entropy, `d_conf`, `dd_conf`, source trust, and decisive positions. |
 | T1 task | `src/grip/data/reversal.py` | Focused source-reliability reversal stream for the A-vs-B comparison. |
 | Dense baseline | `src/grip/models/dense.py` | Full-attention backbone and posterior head for probe work. |
 | Derivative probe | `src/grip/analysis/probe.py` | Frozen-backbone linear probes for level vs trajectory variables. |

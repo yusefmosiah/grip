@@ -40,7 +40,6 @@ class TokenLeakStream:
             source_idx=np.zeros(self.T, dtype=np.int64),
             source_trust=np.ones((self.T, self.S), dtype=np.float64),
             decisive_idx=(np.abs(d_conf) > 0).astype(np.int64),
-            block_boundaries=np.asarray([0, self.T], dtype=np.int64),
             metadata={"natural_len": self.T},
         )
 
@@ -74,7 +73,6 @@ class OrderLeakStream:
             source_idx=np.zeros(self.T, dtype=np.int64),
             source_trust=np.ones((self.T, self.S), dtype=np.float64),
             decisive_idx=np.zeros(self.T, dtype=np.int64),
-            block_boundaries=np.asarray([0, self.T], dtype=np.int64),
             metadata={"natural_len": self.T},
         )
 
@@ -101,7 +99,6 @@ class ConstantTokenStream:
             source_idx=np.zeros(self.T, dtype=np.int64),
             source_trust=np.ones((self.T, self.S), dtype=np.float64),
             decisive_idx=np.zeros(self.T, dtype=np.int64),
-            block_boundaries=np.asarray([0, self.T], dtype=np.int64),
             metadata={"natural_len": self.T},
         )
 

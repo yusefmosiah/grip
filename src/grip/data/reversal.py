@@ -110,12 +110,6 @@ class SourceReliabilityReversalStream:
             t for t in early_candidate_steps
             if decisive_idx[t] == 1 and source_idx[t] == reversal_source
         ]
-        block_size = max(1, self.T // 16)
-        block_boundaries = np.concatenate([
-            np.arange(0, self.T, block_size),
-            [self.T],
-        ]).astype(np.int64)
-
         return StreamSample(
             tokens=tokens,
             answer=h_star,
@@ -127,13 +121,11 @@ class SourceReliabilityReversalStream:
             source_idx=source_idx,
             source_trust=source_trust,
             decisive_idx=decisive_idx,
-            block_boundaries=block_boundaries,
             metadata={
                 "h_star": h_star,
                 "natural_len": natural_len,
                 "reversal_source": reversal_source,
                 "reversal_step": reversal_step,
                 "early_decisive_steps": early_decisive_steps,
-                "block_size": block_size,
             },
         )

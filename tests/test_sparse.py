@@ -98,7 +98,7 @@ def test_grip_read_uses_content_selection_like_content_sparse() -> None:
     assert torch.equal(content_out["selected_blocks"], read_out["selected_blocks"])
 
 
-def test_sparse_selection_is_causal_at_block_boundaries() -> None:
+def test_sparse_selection_is_causal_at_block_transitions() -> None:
     # Given: four two-token blocks and a model with a three-block read budget.
     model = _tiny_sparse_model().eval()
     tokens = torch.arange(8, dtype=torch.long).unsqueeze(0)

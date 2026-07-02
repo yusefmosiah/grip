@@ -40,8 +40,6 @@ class StreamSample:
     source_trust: np.ndarray      # float[T, S]
     # --- ground-truth indices for decisive-token recall ---
     decisive_idx: np.ndarray      # int[T]   1 at thresholded belief-move steps
-    # --- block boundaries for sparse attention ---
-    block_boundaries: np.ndarray  # int[num_blocks+1]
     metadata: dict = field(default_factory=dict)
 
 
@@ -186,13 +184,6 @@ class BayesianEvidenceStream:
         decisive_threshold = 0.02
         decisive_idx = (np.abs(d_conf) >= decisive_threshold).astype(np.int64)
 
-        # block boundaries: contiguous, size = block_size
-        block_size = max(1, T // 16)
-        num_blocks = (T + block_size - 1) // block_size
-        block_boundaries = np.concatenate([
-            np.arange(0, T, block_size), [T]
-        ]).astype(np.int64)
-
         return StreamSample(
             tokens=tokens,
             answer=int(posterior[-1].argmax()),
@@ -204,7 +195,6 @@ class BayesianEvidenceStream:
             source_idx=source_idx,
             source_trust=source_trust,
             decisive_idx=decisive_idx,
-            block_boundaries=block_boundaries,
             metadata={
                 "h_star": h_star,
                 "reliability_init": r.tolist(),
@@ -212,6 +202,5 @@ class BayesianEvidenceStream:
                 "flip_steps": [step for step, _, _ in flip_events],
                 "flip_back": [back for _, _, back in flip_events],
                 "natural_len": natural_len,
-                "block_size": block_size,
             },
         )

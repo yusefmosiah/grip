@@ -60,8 +60,8 @@ exact Bayesian-optimal belief given the stream). From `p[t]` derive:
    length (pytorch #181213 MPS leak). Padding token is a reserved id.
 3. Emit `d_conf`, `dd_conf`, `source_trust`, `decisive_idx` as first-class
    array fields on `StreamSample`, not derived after the fact.
-4. `block_boundaries` partitions `[0,T)` into `ceil(T/block_size)` contiguous
-   blocks. Used by sparse attention and the decisive-token-recall metric.
+4. Sparse-attention block IDs are derived from the configured model/eval
+   `block_size`, not from stream-generated block-boundary metadata.
 
 ## Experiment procedure
 
