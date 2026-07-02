@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Final, Mapping, Sequence
 
-from .score_types import JsonScalar, NoiseFloorArtifact, NoiseFloorError
+from .score_types import JsonScalar, JsonValue, NoiseFloorArtifact, NoiseFloorError
 
 
 MIN_NOISE_FLOOR_SEEDS: Final = 8
@@ -28,7 +28,9 @@ def load_noise_floor(path: Path) -> NoiseFloorArtifact:
     if seed_count < MIN_NOISE_FLOOR_SEEDS:
         raise NoiseFloorError(path, "seed_count must be >= 8")
     seed_ids = _parse_seed_ids(path, raw.get("seed_ids"), seed_count)
-    identical_config_pairs = _parse_config_pairs(path, raw.get("identical_config_pairs"), seed_count)
+    calibration_pairs = _parse_calibration_pairs(path, raw.get("calibration_pairs"), seed_count)
+    calibration = _parse_calibration(path, raw.get("calibration"))
+    zero_tolerance = _parse_zero_tolerance(path, raw.get("zero_tolerance"))
     minimum_signal_threshold = _parse_metric_map(
         path,
         "minimum_signal_threshold",
@@ -44,15 +46,18 @@ def load_noise_floor(path: Path) -> NoiseFloorArtifact:
         seed_count,
         metric_ceilings,
         minimum_signal_threshold,
+        zero_tolerance,
     )
     return NoiseFloorArtifact(
         path=path,
         seed_count=seed_count,
         seed_ids=seed_ids,
-        identical_config_pairs=identical_config_pairs,
+        calibration_pairs=calibration_pairs,
+        calibration=calibration,
         minimum_signal_threshold=minimum_signal_threshold,
         metric_deltas=metric_deltas,
         metric_ceilings=metric_ceilings,
+        zero_tolerance=zero_tolerance,
     )
 
 
@@ -66,6 +71,7 @@ def _parse_metric_delta_map(
     seed_count: int,
     metric_ceilings: Mapping[str, float],
     minimum_signal_threshold: Mapping[str, float],
+    zero_tolerance: float,
 ) -> Mapping[str, tuple[float, ...]]:
     metric_deltas: dict[str, tuple[float, ...]] = {}
     for metric_name, deltas in raw_deltas.items():
@@ -79,10 +85,14 @@ def _parse_metric_delta_map(
         if metric_name not in metric_ceilings:
             raise NoiseFloorError(path, f"metric {metric_name!r} missing metric ceiling")
         expected_ceiling = max(abs(delta) for delta in parsed)
+        if expected_ceiling <= zero_tolerance:
+            raise NoiseFloorError(path, f"metric {metric_name!r} has no measurable calibration spread")
         if abs(metric_ceilings[metric_name] - expected_ceiling) > 1e-12:
             raise NoiseFloorError(path, f"metric {metric_name!r} ceiling is stale")
         if metric_name not in minimum_signal_threshold:
             raise NoiseFloorError(path, f"metric {metric_name!r} missing minimum signal threshold")
+        if abs(minimum_signal_threshold[metric_name] - expected_ceiling) > 1e-12:
+            raise NoiseFloorError(path, f"metric {metric_name!r} minimum signal threshold is stale")
         metric_deltas[metric_name] = parsed
     if not metric_deltas:
         raise NoiseFloorError(path, "at least one metric delta series is required")
@@ -115,27 +125,58 @@ def _parse_seed_ids(path: Path, raw: Sequence[JsonScalar] | JsonScalar, seed_cou
     return tuple(seed_ids)
 
 
-def _parse_config_pairs(
+def _parse_calibration_pairs(
     path: Path,
     raw: Sequence[Mapping[str, JsonScalar] | JsonScalar] | JsonScalar,
     seed_count: int,
-) -> tuple[Mapping[str, str], ...]:
+) -> tuple[Mapping[str, JsonScalar], ...]:
     if not isinstance(raw, list):
-        raise NoiseFloorError(path, "identical_config_pairs must be a list")
+        raise NoiseFloorError(path, "calibration_pairs must be a list")
     if len(raw) != seed_count:
-        raise NoiseFloorError(path, "identical_config_pairs length must equal seed_count")
-    pairs: list[Mapping[str, str]] = []
+        raise NoiseFloorError(path, "calibration_pairs length must equal seed_count")
+    pairs: list[Mapping[str, JsonScalar]] = []
     for pair in raw:
         if not isinstance(pair, dict):
-            raise NoiseFloorError(path, "each identical_config_pairs entry must be an object")
+            raise NoiseFloorError(path, "each calibration_pairs entry must be an object")
         left = pair.get("left")
         right = pair.get("right")
+        left_seed = pair.get("left_seed")
+        right_seed = pair.get("right_seed")
         if not isinstance(left, str) or not isinstance(right, str):
             raise NoiseFloorError(path, "config pairs require string left and right fields")
+        if not isinstance(left_seed, int) or isinstance(left_seed, bool):
+            raise NoiseFloorError(path, "calibration pairs require integer left_seed")
+        if not isinstance(right_seed, int) or isinstance(right_seed, bool):
+            raise NoiseFloorError(path, "calibration pairs require integer right_seed")
         if left == right:
             raise NoiseFloorError(path, "config pair paths must be distinct")
-        pairs.append({"left": left, "right": right})
+        if left_seed == right_seed:
+            raise NoiseFloorError(path, "calibration pair seeds must be distinct")
+        pairs.append({"left": left, "right": right, "left_seed": left_seed, "right_seed": right_seed})
     return tuple(pairs)
+
+
+def _parse_zero_tolerance(path: Path, raw: JsonScalar) -> float:
+    if not is_number(raw):
+        raise NoiseFloorError(path, "zero_tolerance must be numeric")
+    zero_tolerance = float(raw)
+    if zero_tolerance < 0:
+        raise NoiseFloorError(path, "zero_tolerance must be non-negative")
+    return zero_tolerance
+
+
+def _parse_calibration(path: Path, raw: JsonValue) -> Mapping[str, JsonValue]:
+    if not isinstance(raw, dict):
+        raise NoiseFloorError(path, "calibration must be a JSON object")
+    required = ("baseline_names", "data", "device", "eval", "model", "sparse", "train")
+    missing = tuple(name for name in required if name not in raw)
+    if missing:
+        names = ", ".join(missing)
+        raise NoiseFloorError(path, f"calibration missing required fields: {names}")
+    baseline_names = raw.get("baseline_names")
+    if not isinstance(baseline_names, list) or not all(isinstance(name, str) for name in baseline_names):
+        raise NoiseFloorError(path, "calibration baseline_names must be a string list")
+    return raw
 
 
 def _parse_metric_map(

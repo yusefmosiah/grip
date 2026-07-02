@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-import argparse
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Mapping, Sequence, TypeAlias
+from typing import Mapping, Sequence
 
 from .headroom import MRegimeConfig, run_m_regime_smoke
+from .headroom_training import TRAINING_SEED_STRIDE
 from .noise_floor import MIN_NOISE_FLOOR_SEEDS, load_noise_floor
+from .noise_floor_artifact import BASELINE_NAMES, noise_floor_payload
+from .noise_floor_calibration_types import NoiseFloorCalibrationConfig
 from .score import score_run
+from .score_types import JsonValue
 
 
-JsonValue: TypeAlias = (
-    str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
-)
-BASELINE_NAMES: tuple[str, ...] = ("dense", "local", "content-sparse")
+RIGHT_CALIBRATION_SEED_OFFSET = 1_000_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,30 +24,6 @@ class NoiseFloorCalibrationError(ValueError):
 
     def __str__(self) -> str:
         return f"{self.field}: {self.reason}"
-
-
-@dataclass(frozen=True, slots=True)
-class NoiseFloorCalibrationConfig:
-    out_dir: Path
-    task: str = "bayesian"
-    seed_ids: tuple[int, ...] = tuple(range(MIN_NOISE_FLOOR_SEEDS))
-    seq_len: int = 8
-    vocab_size: int = 17
-    d_model: int = 16
-    n_heads: int = 4
-    n_layers: int = 1
-    n_hypotheses: int = 3
-    block_size: int = 2
-    top_k_blocks: int = 3
-    window: int = 2
-    train_steps: int = 0
-    train_batch_size: int = 1
-    eval_batch_size: int = 1
-    eval_seed_offset: int = 10_000
-    lr: float = 1e-3
-    device: str = "cpu"
-    metric_names: tuple[str, ...] = ("loss",)
-    minimum_signal_floor: float = 1e-6
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,12 +38,20 @@ def calibrate_noise_floor(config: NoiseFloorCalibrationConfig) -> NoiseFloorCali
     _validate_calibration_config(config)
     config.out_dir.mkdir(parents=True, exist_ok=True)
     metric_deltas = {metric: [] for metric in config.metric_names}
-    pairs: list[dict[str, str]] = []
+    pairs: list[dict[str, JsonValue]] = []
     for seed in config.seed_ids:
+        right_seed = _right_calibration_seed(seed)
         left_dir = config.out_dir / "pairs" / f"seed-{seed}" / "left"
         right_dir = config.out_dir / "pairs" / f"seed-{seed}" / "right"
-        _run_calibration_pair(config, seed, left_dir, right_dir)
-        pairs.append({"left": str(left_dir), "right": str(right_dir)})
+        _run_calibration_pair(config, seed, right_seed, left_dir, right_dir)
+        pairs.append(
+            {
+                "left": str(left_dir),
+                "left_seed": seed,
+                "right": str(right_dir),
+                "right_seed": right_seed,
+            }
+        )
         for metric in config.metric_names:
             metric_deltas[metric].append(_pair_delta(left_dir, right_dir, metric))
     parsed_deltas = {metric: tuple(float(delta) for delta in deltas) for metric, deltas in metric_deltas.items()}
@@ -75,12 +59,10 @@ def calibrate_noise_floor(config: NoiseFloorCalibrationConfig) -> NoiseFloorCali
         metric: max(abs(delta) for delta in deltas)
         for metric, deltas in parsed_deltas.items()
     }
-    minimum_signal_threshold = {
-        metric: max(metric_ceilings[metric], config.minimum_signal_floor)
-        for metric in config.metric_names
-    }
+    _validate_measurable_spread(metric_ceilings, config.minimum_signal_floor)
+    minimum_signal_threshold = dict(metric_ceilings)
     artifact_path = config.out_dir / "noise-floor.json"
-    payload = _artifact_payload(
+    payload = noise_floor_payload(
         config,
         pairs,
         parsed_deltas,
@@ -105,6 +87,17 @@ def _validate_calibration_config(config: NoiseFloorCalibrationConfig) -> None:
         raise NoiseFloorCalibrationError("seed_ids", "must contain at least 8 seeds")
     if len(set(config.seed_ids)) != len(config.seed_ids):
         raise NoiseFloorCalibrationError("seed_ids", "must not contain duplicates")
+    if len(set(config.decision_seed_ids)) != len(config.decision_seed_ids):
+        raise NoiseFloorCalibrationError("decision_seed_ids", "must not contain duplicates")
+    calibration_seeds = set(config.seed_ids)
+    calibration_seeds.update(_right_calibration_seed(seed) for seed in config.seed_ids)
+    if len(calibration_seeds) != len(config.seed_ids) * 2:
+        raise NoiseFloorCalibrationError("seed_ids", "left and right calibration seeds must be unique")
+    if config.train_steps >= TRAINING_SEED_STRIDE:
+        raise NoiseFloorCalibrationError("train_steps", "must be below the per-run seed stride")
+    decision_seeds = _decision_seed_space(config)
+    if calibration_seeds.intersection(decision_seeds):
+        raise NoiseFloorCalibrationError("seed_ids", "must be disjoint from decision seed space")
     if not config.metric_names:
         raise NoiseFloorCalibrationError("metric_names", "must not be empty")
     if len(set(config.metric_names)) != len(config.metric_names):
@@ -119,6 +112,8 @@ def _validate_calibration_config(config: NoiseFloorCalibrationConfig) -> None:
         raise NoiseFloorCalibrationError("eval_batch_size", "must be positive")
     if config.eval_seed_offset <= 0:
         raise NoiseFloorCalibrationError("eval_seed_offset", "must be positive")
+    if config.eval_seed_offset <= config.train_steps:
+        raise NoiseFloorCalibrationError("eval_seed_offset", "must exceed train_steps")
     if config.lr <= 0:
         raise NoiseFloorCalibrationError("lr", "must be positive")
     if config.device != "cpu":
@@ -135,12 +130,26 @@ def _validate_calibration_config(config: NoiseFloorCalibrationConfig) -> None:
 
 def _run_calibration_pair(
     config: NoiseFloorCalibrationConfig,
-    seed: int,
+    left_seed: int,
+    right_seed: int,
     left_dir: Path,
     right_dir: Path,
 ) -> None:
-    run_m_regime_smoke(_m_regime_config(config, seed, left_dir))
-    run_m_regime_smoke(_m_regime_config(config, seed, right_dir))
+    run_m_regime_smoke(_m_regime_config(config, left_seed, left_dir))
+    run_m_regime_smoke(_m_regime_config(config, right_seed, right_dir))
+
+
+def _right_calibration_seed(left_seed: int) -> int:
+    return left_seed + RIGHT_CALIBRATION_SEED_OFFSET
+
+
+def _decision_seed_space(config: NoiseFloorCalibrationConfig) -> set[int]:
+    seeds = set(config.decision_seed_ids)
+    seeds.update(seed + config.eval_seed_offset for seed in config.decision_seed_ids)
+    for seed in config.decision_seed_ids:
+        start = seed * TRAINING_SEED_STRIDE
+        seeds.update(range(start, start + config.train_steps))
+    return seeds
 
 
 def _m_regime_config(
@@ -186,91 +195,27 @@ def _metric_delta(left_run_dir: Path, right_run_dir: Path, metric: str) -> float
     return right_score.metrics[metric] - left_score.metrics[metric]
 
 
-def _artifact_payload(
-    config: NoiseFloorCalibrationConfig,
-    pairs: Sequence[dict[str, str]],
-    metric_deltas: dict[str, tuple[float, ...]],
-    metric_ceilings: dict[str, float],
-    minimum_signal_threshold: dict[str, float],
-) -> dict[str, JsonValue]:
-    return {
-        "calibration": {
-            "baseline_names": list(BASELINE_NAMES),
-            "data": {
-                "seq_len": config.seq_len,
-                "task": config.task,
-                "vocab_size": config.vocab_size,
-            },
-            "device": config.device,
-            "eval": {
-                "batch_size": config.eval_batch_size,
-                "seed_offset": config.eval_seed_offset,
-            },
-            "eval_batch_size": config.eval_batch_size,
-            "eval_seed_offset": config.eval_seed_offset,
-            "model": {
-                "d_model": config.d_model,
-                "n_heads": config.n_heads,
-                "n_hypotheses": config.n_hypotheses,
-                "n_layers": config.n_layers,
-            },
-            "minimum_signal_floor": config.minimum_signal_floor,
-            "sparse": {
-                "block_size": config.block_size,
-                "top_k_blocks": config.top_k_blocks,
-                "window": config.window,
-            },
-            "task": config.task,
-            "train": {
-                "batch_size": config.train_batch_size,
-                "lr": config.lr,
-                "steps": config.train_steps,
-            },
-            "train_batch_size": config.train_batch_size,
-            "train_steps": config.train_steps,
-        },
-        "identical_config_pairs": list(pairs),
-        "kind": "M-noise-floor",
-        "metric_ceilings": metric_ceilings,
-        "metric_deltas": {
-            metric: list(deltas)
-            for metric, deltas in metric_deltas.items()
-        },
-        "minimum_signal_threshold": minimum_signal_threshold,
-        "seed_count": len(config.seed_ids),
-        "seed_ids": list(config.seed_ids),
-    }
+def _validate_measurable_spread(
+    metric_ceilings: Mapping[str, float],
+    zero_tolerance: float,
+) -> None:
+    degenerate = tuple(
+        metric
+        for metric, ceiling in metric_ceilings.items()
+        if ceiling <= zero_tolerance
+    )
+    if degenerate:
+        names = ", ".join(sorted(degenerate))
+        raise NoiseFloorCalibrationError(
+            "metric_deltas",
+            f"metrics have no measurable calibration spread: {names}",
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("out_dir", type=Path)
-    parser.add_argument("--task", choices=("bayesian", "reversal"), default="bayesian")
-    parser.add_argument("--seed-count", type=int, default=MIN_NOISE_FLOOR_SEEDS)
-    parser.add_argument("--train-steps", type=int, default=0)
-    parser.add_argument("--train-batch-size", type=int, default=1)
-    parser.add_argument("--eval-batch-size", type=int, default=1)
-    parser.add_argument("--eval-seed-offset", type=int, default=10_000)
-    parser.add_argument("--seq-len", type=int, default=8)
-    parser.add_argument("--vocab-size", type=int, default=17)
-    parser.add_argument("--n-hypotheses", type=int, default=3)
-    args = parser.parse_args(argv)
-    result = calibrate_noise_floor(
-        NoiseFloorCalibrationConfig(
-            out_dir=args.out_dir,
-            task=args.task,
-            seed_ids=tuple(range(args.seed_count)),
-            seq_len=args.seq_len,
-            vocab_size=args.vocab_size,
-            n_hypotheses=args.n_hypotheses,
-            train_steps=args.train_steps,
-            train_batch_size=args.train_batch_size,
-            eval_batch_size=args.eval_batch_size,
-            eval_seed_offset=args.eval_seed_offset,
-        )
-    )
-    print(result.path)
-    return 0
+    from .noise_floor_calibration_cli import main as cli_main
+
+    return cli_main(argv)
 
 
 if __name__ == "__main__":

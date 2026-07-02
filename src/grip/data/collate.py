@@ -1,5 +1,6 @@
 """Batching utilities: StreamSample -> torch tensors."""
 from __future__ import annotations
+import hashlib
 import numpy as np
 import torch
 
@@ -41,5 +42,11 @@ def collate(samples: list[StreamSample], device: str = "cpu") -> dict:
 
 def make_batch(stream, n: int, seed: int = 0, device: str = "cpu") -> dict:
     """Convenience: generate n streams and collate."""
-    samples = [stream.generate(seed=seed * 1000 + i) for i in range(n)]
+    samples = [stream.generate(seed=_sample_seed(seed, i)) for i in range(n)]
     return collate(samples, device=device)
+
+
+def _sample_seed(seed: int, index: int) -> int:
+    payload = f"{seed}:{index}".encode("ascii")
+    digest = hashlib.blake2b(payload, digest_size=8, person=b"gripbatch").digest()
+    return int.from_bytes(digest, "big") & ((1 << 63) - 1)

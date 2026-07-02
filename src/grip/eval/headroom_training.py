@@ -12,6 +12,7 @@ from grip.models import ContentSparseTransformer, DenseTransformer
 
 BatchTensors: TypeAlias = Mapping[str, torch.Tensor]
 TrainRecord = Mapping[str, int | float | str | Mapping[str, float]]
+TRAINING_SEED_STRIDE = 1_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,6 +85,8 @@ def training_batch(
 
 
 def training_token_batches(request: TrainingBatchRequest) -> tuple[TrainingTokenBatch, ...]:
+    if request.steps >= TRAINING_SEED_STRIDE:
+        raise TrainingDataError("steps", "must be below the per-run seed stride")
     return tuple(
         TrainingTokenBatch(
             seed=step_seed,
@@ -97,8 +100,13 @@ def training_token_batches(request: TrainingBatchRequest) -> tuple[TrainingToken
                 device=request.device,
             ),
         )
-        for step_seed in range(request.seed, request.seed + request.steps)
+        for step_seed in _step_seeds(request.seed, request.steps)
     )
+
+
+def _step_seeds(run_seed: int, steps: int) -> range:
+    start = run_seed * TRAINING_SEED_STRIDE
+    return range(start, start + steps)
 
 
 def _stream(

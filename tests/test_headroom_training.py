@@ -62,8 +62,39 @@ def test_training_token_batches_use_deterministic_step_seeds() -> None:
         )
     )
 
-    # Then: each optimizer step receives the deterministic next training seed.
-    assert tuple(batch.seed for batch in batches) == (5, 6, 7)
-    stream = BayesianEvidenceStream(num_hypotheses=3, seq_len=8, vocab_size=17, seed=6)
-    expected_step_two = make_batch(stream, n=2, seed=6, device="cpu")["tokens"]
+    # Then: each optimizer step receives a deterministic seed range owned by the run seed.
+    assert tuple(batch.seed for batch in batches) == (5_000_000, 5_000_001, 5_000_002)
+    stream = BayesianEvidenceStream(num_hypotheses=3, seq_len=8, vocab_size=17, seed=5_000_001)
+    expected_step_two = make_batch(stream, n=2, seed=5_000_001, device="cpu")["tokens"]
     assert torch.equal(batches[1].tokens, expected_step_two)
+
+
+def test_training_token_batches_do_not_overlap_adjacent_run_seed_ranges() -> None:
+    # Given: two adjacent decision seeds with the same training-step count.
+    first = training_token_batches(
+        TrainingBatchRequest(
+            task="bayesian",
+            seq_len=8,
+            vocab_size=17,
+            n_hypotheses=3,
+            batch_size=1,
+            seed=5,
+            steps=3,
+            device="cpu",
+        )
+    )
+    second = training_token_batches(
+        TrainingBatchRequest(
+            task="bayesian",
+            seq_len=8,
+            vocab_size=17,
+            n_hypotheses=3,
+            batch_size=1,
+            seed=6,
+            steps=3,
+            device="cpu",
+        )
+    )
+
+    # Then: their generated batch seeds are disjoint.
+    assert set(batch.seed for batch in first).isdisjoint(batch.seed for batch in second)

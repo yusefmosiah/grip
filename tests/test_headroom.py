@@ -15,10 +15,30 @@ from grip.models import ContentSparseTransformer, DenseTransformer
 BaselineModel = DenseTransformer | ContentSparseTransformer
 
 
-def _write_noise_floor(path: Path) -> Path:
+def _write_noise_floor(
+    path: Path,
+    *,
+    train_steps: int = 0,
+    train_batch_size: int = 1,
+    eval_batch_size: int = 1,
+) -> Path:
     payload = {
-        "identical_config_pairs": [
-            {"left": f"seed-{seed}-a", "right": f"seed-{seed}-b"}
+        "calibration": {
+            "baseline_names": ["dense", "local", "content-sparse"],
+            "data": {"seq_len": 8, "task": "bayesian", "vocab_size": 17},
+            "device": "cpu",
+            "eval": {"batch_size": eval_batch_size, "seed_offset": 10_000},
+            "model": {"d_model": 16, "n_heads": 4, "n_hypotheses": 3, "n_layers": 1},
+            "sparse": {"block_size": 2, "top_k_blocks": 3, "window": 2},
+            "train": {"batch_size": train_batch_size, "lr": 1e-3, "steps": train_steps},
+        },
+        "calibration_pairs": [
+            {
+                "left": f"seed-{seed}-a",
+                "left_seed": seed + 100,
+                "right": f"seed-{seed}-b",
+                "right_seed": seed + 200,
+            }
             for seed in range(8)
         ],
         "kind": "M-noise-floor",
@@ -27,6 +47,7 @@ def _write_noise_floor(path: Path) -> Path:
         "minimum_signal_threshold": {"loss": 0.01},
         "seed_count": 8,
         "seed_ids": list(range(8)),
+        "zero_tolerance": 1e-12,
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
@@ -34,8 +55,22 @@ def _write_noise_floor(path: Path) -> Path:
 
 def _write_accuracy_only_noise_floor(path: Path) -> Path:
     payload = {
-        "identical_config_pairs": [
-            {"left": f"seed-{seed}-a", "right": f"seed-{seed}-b"}
+        "calibration": {
+            "baseline_names": ["dense", "local", "content-sparse"],
+            "data": {"seq_len": 8, "task": "bayesian", "vocab_size": 17},
+            "device": "cpu",
+            "eval": {"batch_size": 1, "seed_offset": 10_000},
+            "model": {"d_model": 16, "n_heads": 4, "n_hypotheses": 3, "n_layers": 1},
+            "sparse": {"block_size": 2, "top_k_blocks": 3, "window": 2},
+            "train": {"batch_size": 1, "lr": 1e-3, "steps": 0},
+        },
+        "calibration_pairs": [
+            {
+                "left": f"seed-{seed}-a",
+                "left_seed": seed + 100,
+                "right": f"seed-{seed}-b",
+                "right_seed": seed + 200,
+            }
             for seed in range(8)
         ],
         "kind": "M-noise-floor",
@@ -44,6 +79,7 @@ def _write_accuracy_only_noise_floor(path: Path) -> Path:
         "minimum_signal_threshold": {"accuracy": 0.01},
         "seed_count": 8,
         "seed_ids": list(range(8)),
+        "zero_tolerance": 1e-12,
     }
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
@@ -197,7 +233,11 @@ def test_m_regime_smoke_uses_matched_initialization_in_run_path(
 
 def test_m_regime_trained_run_records_training_budget(tmp_path: Path) -> None:
     # Given: a valid noise floor and a tiny trained M-regime config.
-    noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
+    noise_floor_path = _write_noise_floor(
+        tmp_path / "noise-floor.json",
+        train_steps=1,
+        train_batch_size=2,
+    )
     config = MRegimeConfig(
         out_dir=tmp_path / "m-regime",
         noise_floor_path=noise_floor_path,
@@ -227,7 +267,12 @@ def test_m_regime_trained_run_records_training_budget(tmp_path: Path) -> None:
 
 def test_m_regime_trained_run_uses_heldout_eval_batch(tmp_path: Path) -> None:
     # Given: a trained M-regime config with explicit heldout eval provenance.
-    noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
+    noise_floor_path = _write_noise_floor(
+        tmp_path / "noise-floor.json",
+        train_steps=1,
+        train_batch_size=2,
+        eval_batch_size=3,
+    )
     config = MRegimeConfig(
         out_dir=tmp_path / "m-regime",
         noise_floor_path=noise_floor_path,
@@ -279,7 +324,7 @@ def test_m_regime_trained_run_requests_disjoint_eval_seed(
         for line in (dense_dir / "train.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     eval_tensors = json.loads((dense_dir / "eval_tensors.json").read_text(encoding="utf-8"))
-    assert [record["seed"] for record in train_records] == [3, 4]
+    assert [record["seed"] for record in train_records] == [3_000_000, 3_000_001]
     assert eval_tensors["seed"] == 10_003
 
 

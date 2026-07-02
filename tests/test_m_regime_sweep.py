@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from grip.eval.m_regime_sweep import MRegimeSweepConfig, main, run_m_regime_sweep
+from grip.eval.m_regime_sweep import (
+    MRegimeSweepConfig,
+    _calibration_config,
+    main,
+    run_m_regime_sweep,
+)
 
 
 def test_m_regime_sweep_writes_summary_and_aggregate_reports(tmp_path: Path) -> None:
@@ -118,6 +123,23 @@ def test_m_regime_sweep_cli_propagates_heldout_eval_options(
     )
     assert resolved["eval"]["seed"] == 20_000
     assert resolved["eval"]["batch_size"] == 2
+
+
+def test_m_regime_sweep_calibration_seeds_do_not_overlap_decision_training_space(tmp_path: Path) -> None:
+    # Given: adjacent decision seeds whose first training batches used to collide with calibration seeds.
+    config = MRegimeSweepConfig(
+        out_dir=tmp_path / "sweep",
+        seed_ids=tuple(range(8)),
+        train_steps=1,
+    )
+
+    # When: the sweep builds its calibration config.
+    calibration = _calibration_config(config)
+
+    # Then: calibration seeds are outside the decision seed/training/eval ranges.
+    assert set(calibration.seed_ids).isdisjoint(config.seed_ids)
+    assert set(calibration.seed_ids).isdisjoint(seed * 1_000_000 for seed in config.seed_ids)
+    assert set(calibration.seed_ids).isdisjoint(seed + config.eval_seed_offset for seed in config.seed_ids)
 
 
 def test_m_regime_sweep_rejects_reversal_shape_before_artifacts(tmp_path: Path) -> None:

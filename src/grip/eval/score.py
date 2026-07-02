@@ -13,6 +13,7 @@ from typing import Final, Mapping, Sequence
 from .noise_floor import is_number, load_noise_floor
 from .score_types import (
     ComparisonReport,
+    JsonValue,
     NoiseFloorArtifact,
     NoiseFloorError,
     RunScore,
@@ -82,18 +83,25 @@ def compare(
         try:
             noise_floor = load_noise_floor(noise_floor_path)
             missing_metrics = _missing_noise_floor_metrics(scores, noise_floor)
-            if missing_metrics:
+            config_mismatches = _noise_floor_config_mismatches(scores, noise_floor)
+            if config_mismatches:
+                reason = "noise_floor_config_mismatch"
+            elif missing_metrics:
                 reason = "noise_floor_missing_metric"
             else:
                 interpretable = preregistered
                 reason = "ok" if preregistered else "comparison_not_preregistered"
         except NoiseFloorError:
             reason = "noise_floor_invalid"
+            config_mismatches = ()
+    else:
+        config_mismatches = ()
     report = ComparisonReport(
         runs=scores,
         interpretable=interpretable,
         reason=reason,
         noise_floor=noise_floor,
+        config_mismatches=config_mismatches,
     )
     comparison_path = runs[0].parent / "comparison.json"
     comparison_path.write_text(report.to_json_text(), encoding="utf-8")
@@ -119,6 +127,78 @@ def _missing_noise_floor_metrics(
         or metric not in noise_floor.metric_deltas
         or metric not in noise_floor.metric_ceilings
     )
+
+
+def _noise_floor_config_mismatches(
+    scores: Sequence[RunScore],
+    noise_floor: NoiseFloorArtifact,
+) -> tuple[str, ...]:
+    mismatches: list[str] = []
+    for score in scores:
+        config_path = score.run_dir / "config.resolved.json"
+        try:
+            run_config = _load_run_config(config_path)
+        except ScoreArtifactError:
+            mismatches.append(f"{score.run_dir.name}.config.resolved.json")
+            continue
+        mismatches.extend(_run_config_mismatches(score.run_dir.name, run_config, noise_floor.calibration))
+    return tuple(sorted(set(mismatches)))
+
+
+def _load_run_config(path: Path) -> Mapping[str, JsonValue]:
+    if not path.exists():
+        raise ScoreArtifactError(path, "config.resolved.json is required")
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ScoreArtifactError(path, "config.resolved.json must be valid JSON") from exc
+    if not isinstance(raw, dict):
+        raise ScoreArtifactError(path, "config.resolved.json must be a JSON object")
+    return raw
+
+
+def _run_config_mismatches(
+    run_name: str,
+    run_config: Mapping[str, JsonValue],
+    calibration: Mapping[str, JsonValue],
+) -> tuple[str, ...]:
+    fields = (
+        ("data.task", ("data", "task"), ("data", "task")),
+        ("data.seq_len", ("data", "seq_len"), ("data", "seq_len")),
+        ("data.vocab_size", ("data", "vocab_size"), ("data", "vocab_size")),
+        ("device", ("device",), ("run", "device")),
+        ("eval.batch_size", ("eval", "batch_size"), ("eval", "batch_size")),
+        ("eval.seed_offset", ("eval", "seed_offset"), ("eval", "seed_offset")),
+        ("model.d_model", ("model", "d_model"), ("model", "d_model")),
+        ("model.n_heads", ("model", "n_heads"), ("model", "n_heads")),
+        ("model.n_hypotheses", ("model", "n_hypotheses"), ("model", "n_hypotheses")),
+        ("model.n_layers", ("model", "n_layers"), ("model", "n_layers")),
+        ("sparse.block_size", ("sparse", "block_size"), ("sparse", "block_size")),
+        ("sparse.top_k_blocks", ("sparse", "top_k_blocks"), ("sparse", "top_k_blocks")),
+        ("sparse.window", ("sparse", "window"), ("sparse", "window")),
+        ("train.batch_size", ("train", "batch_size"), ("train", "batch_size")),
+        ("train.lr", ("train", "lr"), ("train", "lr")),
+        ("train.steps", ("train", "steps"), ("train", "steps")),
+    )
+    mismatches = [
+        f"{run_name}.{label}"
+        for label, calibration_path, run_path in fields
+        if _field_value(calibration, calibration_path) != _field_value(run_config, run_path)
+    ]
+    baseline_names = _field_value(calibration, ("baseline_names",))
+    model_name = _field_value(run_config, ("model", "name"))
+    if not isinstance(baseline_names, list) or model_name not in baseline_names:
+        mismatches.append(f"{run_name}.baseline_names")
+    return tuple(mismatches)
+
+
+def _field_value(payload: Mapping[str, JsonValue], path: tuple[str, ...]) -> JsonValue:
+    current: JsonValue = dict(payload)
+    for part in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
 
 
 if __name__ == "__main__":

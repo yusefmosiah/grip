@@ -8,6 +8,7 @@ import pytest
 from grip.eval.headroom import MRegimeConfig, run_m_regime_smoke
 from grip.eval.noise_floor import load_noise_floor
 from grip.eval.noise_floor_calibration import (
+    RIGHT_CALIBRATION_SEED_OFFSET,
     NoiseFloorCalibrationConfig,
     NoiseFloorCalibrationError,
     calibrate_noise_floor,
@@ -25,13 +26,18 @@ def test_calibrate_noise_floor_writes_scorer_loadable_loss_artifact(tmp_path: Pa
     artifact = load_noise_floor(result.path)
     raw_artifact = json.loads(result.path.read_text(encoding="utf-8"))
     assert artifact.seed_count == 8
-    assert artifact.seed_ids == tuple(range(8))
-    assert len(artifact.identical_config_pairs) == 8
+    assert artifact.seed_ids == tuple(range(10_000_000_000, 10_000_000_008))
+    assert len(artifact.calibration_pairs) == 8
+    assert all(
+        pair["left_seed"] != pair["right_seed"]
+        for pair in artifact.calibration_pairs
+    )
     assert set(artifact.metric_deltas) == {"loss"}
     assert artifact.metric_ceilings["loss"] == max(
         abs(delta) for delta in artifact.metric_deltas["loss"]
     )
-    assert artifact.minimum_signal_threshold["loss"] == 1e-6
+    assert artifact.metric_ceilings["loss"] > artifact.zero_tolerance
+    assert artifact.minimum_signal_threshold["loss"] == artifact.metric_ceilings["loss"]
     assert raw_artifact["calibration"]["data"] == {
         "seq_len": 8,
         "task": "bayesian",
@@ -57,9 +63,7 @@ def test_calibrate_noise_floor_writes_scorer_loadable_loss_artifact(tmp_path: Pa
         "lr": 1e-3,
         "steps": 0,
     }
-    assert raw_artifact["calibration"]["minimum_signal_floor"] == 1e-6
-    assert raw_artifact["calibration"]["eval_batch_size"] == 1
-    assert raw_artifact["calibration"]["eval_seed_offset"] == 10_000
+    assert raw_artifact["zero_tolerance"] == 1e-6
 
     # And: the generated artifact can authorize interpretation through compare().
     gate = run_m_regime_smoke(
@@ -92,6 +96,70 @@ def test_calibrate_noise_floor_rejects_duplicate_metric_names(tmp_path: Path) ->
     # When / Then: calibration rejects it before scorer loading.
     with pytest.raises(NoiseFloorCalibrationError, match="metric_names"):
         calibrate_noise_floor(config)
+
+
+def test_calibrate_noise_floor_rejects_decision_seed_overlap(tmp_path: Path) -> None:
+    # Given: a calibration config whose left calibration seed is also a decision seed.
+    config = NoiseFloorCalibrationConfig(
+        out_dir=tmp_path / "noise-floor",
+        seed_ids=tuple(range(1_000_000, 1_000_008)),
+        decision_seed_ids=(1_000_000,),
+    )
+
+    # When / Then: calibration rejects the overlap before writing artifacts.
+    with pytest.raises(NoiseFloorCalibrationError, match="disjoint"):
+        calibrate_noise_floor(config)
+
+
+def test_calibrate_noise_floor_rejects_right_seed_left_seed_collision(tmp_path: Path) -> None:
+    # Given: one right-side calibration seed collides with another pair's left seed.
+    base = 10_000_000_000
+    config = NoiseFloorCalibrationConfig(
+        out_dir=tmp_path / "noise-floor",
+        seed_ids=(
+            base,
+            base + RIGHT_CALIBRATION_SEED_OFFSET,
+            base + 1,
+            base + 2,
+            base + 3,
+            base + 4,
+            base + 5,
+            base + 6,
+        ),
+    )
+
+    # When / Then: calibration rejects it before pair generation.
+    with pytest.raises(NoiseFloorCalibrationError, match="unique"):
+        calibrate_noise_floor(config)
+
+
+def test_calibrate_noise_floor_rejects_right_seed_decision_overlap(tmp_path: Path) -> None:
+    # Given: a right-side calibration seed collides with a decision seed.
+    base = 10_000_000_000
+    config = NoiseFloorCalibrationConfig(
+        out_dir=tmp_path / "noise-floor",
+        seed_ids=tuple(base + seed for seed in range(8)),
+        decision_seed_ids=(base + RIGHT_CALIBRATION_SEED_OFFSET,),
+    )
+
+    # When / Then: calibration rejects it before pair generation.
+    with pytest.raises(NoiseFloorCalibrationError, match="disjoint"):
+        calibrate_noise_floor(config)
+
+
+def test_calibrate_noise_floor_rejects_degenerate_metric_spread(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Given: a calibration run whose paired metrics are exactly identical.
+    def zero_pair_delta(left_dir: Path, right_dir: Path, metric: str) -> float:
+        return 0.0
+
+    monkeypatch.setattr(
+        "grip.eval.noise_floor_calibration._pair_delta",
+        zero_pair_delta,
+    )
+
+    # When / Then: calibration fails loudly instead of writing an epsilon floor.
+    with pytest.raises(NoiseFloorCalibrationError, match="no measurable calibration spread"):
+        calibrate_noise_floor(NoiseFloorCalibrationConfig(out_dir=tmp_path / "noise-floor"))
 
 
 def test_calibrate_noise_floor_rejects_invalid_task_before_writing(tmp_path: Path) -> None:
@@ -143,5 +211,7 @@ def test_noise_floor_calibration_cli_records_heldout_eval_options(
     assert exit_code == 0
     printed_path = Path(capsys.readouterr().out.strip())
     payload = json.loads(printed_path.read_text(encoding="utf-8"))
-    assert payload["calibration"]["eval_batch_size"] == 2
-    assert payload["calibration"]["eval_seed_offset"] == 20_000
+    assert payload["calibration"]["eval"] == {
+        "batch_size": 2,
+        "seed_offset": 20_000,
+    }

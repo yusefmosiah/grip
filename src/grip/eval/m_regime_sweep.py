@@ -10,6 +10,7 @@ from .aggregate_summary import AggregateSummaryResult, aggregate_summary_file
 from .headroom import MRegimeConfig, MRegimeResult, run_m_regime_smoke
 from .noise_floor import MIN_NOISE_FLOOR_SEEDS
 from .noise_floor_calibration import NoiseFloorCalibrationConfig, calibrate_noise_floor
+from .noise_floor_calibration_types import DEFAULT_CALIBRATION_SEED_OFFSET
 
 
 JsonValue: TypeAlias = (
@@ -66,7 +67,8 @@ def _calibration_config(config: MRegimeSweepConfig) -> NoiseFloorCalibrationConf
     return NoiseFloorCalibrationConfig(
         out_dir=config.out_dir / "noise-floor",
         task=config.task,
-        seed_ids=config.seed_ids,
+        seed_ids=tuple(seed + DEFAULT_CALIBRATION_SEED_OFFSET for seed in config.seed_ids),
+        decision_seed_ids=config.seed_ids,
         seq_len=config.seq_len,
         vocab_size=config.vocab_size,
         d_model=config.d_model,

@@ -7,6 +7,7 @@ from typing import Mapping, TypeAlias, TypedDict
 
 
 JsonScalar: TypeAlias = str | int | float | bool | None
+JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,10 +39,12 @@ class NoiseFloorArtifact:
     path: Path
     seed_count: int
     seed_ids: tuple[int, ...]
-    identical_config_pairs: tuple[Mapping[str, str], ...]
+    calibration_pairs: tuple[Mapping[str, JsonScalar], ...]
+    calibration: Mapping[str, JsonValue]
     minimum_signal_threshold: Mapping[str, float]
     metric_deltas: Mapping[str, tuple[float, ...]]
     metric_ceilings: Mapping[str, float]
+    zero_tolerance: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,10 +53,12 @@ class ComparisonReport:
     interpretable: bool
     reason: str
     noise_floor: NoiseFloorArtifact | None
+    config_mismatches: tuple[str, ...] = ()
 
     def to_json_text(self) -> str:
         payload = {
             "interpretable": self.interpretable,
+            "config_mismatches": list(self.config_mismatches),
             "noise_floor": _noise_floor_payload(self.noise_floor),
             "reason": self.reason,
             "runs": [
@@ -70,6 +75,7 @@ class NoiseFloorPayload(TypedDict):
     path: str
     seed_count: int
     seed_ids: list[int]
+    zero_tolerance: float
 
 
 def _noise_floor_payload(noise_floor: NoiseFloorArtifact | None) -> NoiseFloorPayload | None:
@@ -81,4 +87,5 @@ def _noise_floor_payload(noise_floor: NoiseFloorArtifact | None) -> NoiseFloorPa
         "path": str(noise_floor.path),
         "seed_count": noise_floor.seed_count,
         "seed_ids": list(noise_floor.seed_ids),
+        "zero_tolerance": noise_floor.zero_tolerance,
     }
