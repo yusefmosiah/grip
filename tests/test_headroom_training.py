@@ -3,7 +3,15 @@ from __future__ import annotations
 import torch
 
 from grip.data import BayesianEvidenceStream, SourceReliabilityReversalStream, make_batch
-from grip.eval.headroom_training import TrainingBatchRequest, training_token_batches, training_tokens
+from grip.eval.headroom_training import (
+    TrainingBatchRequest,
+    TrainingLoopConfig,
+    TrainingTokenBatch,
+    train_model,
+    training_token_batches,
+    training_tokens,
+)
+from grip.models import DenseTransformer
 
 
 def test_training_tokens_uses_bayesian_evidence_stream() -> None:
@@ -98,3 +106,32 @@ def test_training_token_batches_do_not_overlap_adjacent_run_seed_ranges() -> Non
 
     # Then: their generated batch seeds are disjoint.
     assert set(batch.seed for batch in first).isdisjoint(batch.seed for batch in second)
+
+
+def test_train_model_decreases_loss_on_repeated_cpu_batch() -> None:
+    # Given: a tiny dense model and an overfit-friendly repeated CPU batch.
+    torch.manual_seed(0)
+    tokens = torch.tensor([[1, 2, 3, 4, 1, 2, 3, 4]] * 8, dtype=torch.long)
+    model = DenseTransformer(
+        vocab_size=8,
+        d_model=16,
+        n_heads=2,
+        n_layers=1,
+        max_seq_len=8,
+        n_hypotheses=2,
+    )
+    batches = tuple(
+        TrainingTokenBatch(seed=seed, tokens=tokens.clone())
+        for seed in range(20)
+    )
+
+    # When: the real optimizer-backed training loop runs.
+    records = train_model(
+        model=model,
+        batches=batches,
+        config=TrainingLoopConfig(dry_run_seed=0, lr=1e-2, vocab_size=8),
+    )
+
+    # Then: the training path performs optimizer steps that reduce CE loss.
+    losses = [float(record["loss"]["total"]) for record in records]
+    assert losses[-1] < losses[0] * 0.25
