@@ -23,6 +23,31 @@ class TrainingDataError(ValueError):
         return f"{self.field}: {self.reason}"
 
 
+@dataclass(frozen=True, slots=True)
+class TrainingTokenBatch:
+    seed: int
+    tokens: torch.Tensor
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingBatchRequest:
+    task: str
+    seq_len: int
+    vocab_size: int
+    n_hypotheses: int
+    batch_size: int
+    seed: int
+    steps: int
+    device: str
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingLoopConfig:
+    dry_run_seed: int
+    lr: float
+    vocab_size: int
+
+
 def training_tokens(
     *,
     task: str,
@@ -58,6 +83,24 @@ def training_batch(
     return make_batch(stream, n=batch_size, seed=seed, device=device)
 
 
+def training_token_batches(request: TrainingBatchRequest) -> tuple[TrainingTokenBatch, ...]:
+    return tuple(
+        TrainingTokenBatch(
+            seed=step_seed,
+            tokens=training_tokens(
+                task=request.task,
+                seq_len=request.seq_len,
+                vocab_size=request.vocab_size,
+                n_hypotheses=request.n_hypotheses,
+                batch_size=request.batch_size,
+                seed=step_seed,
+                device=request.device,
+            ),
+        )
+        for step_seed in range(request.seed, request.seed + request.steps)
+    )
+
+
 def _stream(
     task: str,
     seq_len: int,
@@ -80,22 +123,29 @@ def _stream(
 def train_model(
     *,
     model: DenseTransformer | ContentSparseTransformer,
-    tokens: torch.Tensor,
-    steps: int,
-    lr: float,
-    vocab_size: int,
+    batches: tuple[TrainingTokenBatch, ...],
+    config: TrainingLoopConfig,
 ) -> tuple[TrainRecord, ...]:
     records: list[TrainRecord] = []
-    if steps == 0:
-        records.append(_train_record(step=0, loss=0.0, lr=lr, tokens=0, event="dry_run"))
+    if not batches:
+        records.append(
+            _train_record(
+                step=0,
+                loss=0.0,
+                lr=config.lr,
+                tokens=0,
+                event="dry_run",
+                seed=config.dry_run_seed,
+            )
+        )
         return tuple(records)
     model.train()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    for step in range(1, steps + 1):
-        out = model(tokens)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
+    for step, batch in enumerate(batches, start=1):
+        out = model(batch.tokens)
         loss = F.cross_entropy(
-            out["lm_logits"][:, :-1].reshape(-1, vocab_size),
-            tokens[:, 1:].reshape(-1),
+            out["lm_logits"][:, :-1].reshape(-1, config.vocab_size),
+            batch.tokens[:, 1:].reshape(-1),
         )
         optimizer.zero_grad()
         loss.backward()
@@ -104,9 +154,10 @@ def train_model(
             _train_record(
                 step=step,
                 loss=float(loss.item()),
-                lr=lr,
-                tokens=int(tokens.numel()),
+                lr=config.lr,
+                tokens=int(batch.tokens.numel()),
                 event="train",
+                seed=batch.seed,
             )
         )
     return tuple(records)
@@ -119,11 +170,13 @@ def _train_record(
     lr: float,
     tokens: int,
     event: str,
+    seed: int,
 ) -> TrainRecord:
     return {
         "event": event,
         "loss": {"total": loss},
         "lr": lr,
+        "seed": seed,
         "step": step,
         "tokens": tokens,
     }

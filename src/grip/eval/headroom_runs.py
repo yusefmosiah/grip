@@ -9,18 +9,18 @@ import torch.nn.functional as F
 
 from grip.models import ContentSparseTransformer, DenseTransformer
 
-from .headroom_training import BatchTensors, train_model
+from .headroom_training import BatchTensors, TrainingLoopConfig, TrainingTokenBatch, train_model
 from .headroom_types import BaselineSpec, HeadroomConfigError, MRegimeConfig, ResolvedJson
 from .selection_diagnostics import write_selection_diagnostics
 
 
 def write_baselines(
     config: MRegimeConfig,
-    train_batch: BatchTensors,
+    train_batches: tuple[TrainingTokenBatch, ...],
     eval_batch: BatchTensors,
 ) -> tuple[Path, ...]:
     return tuple(
-        _write_baseline(config, spec, train_batch["tokens"], eval_batch)
+        _write_baseline(config, spec, train_batches, eval_batch)
         for spec in _baseline_specs(config)
     )
 
@@ -36,7 +36,7 @@ def _baseline_specs(config: MRegimeConfig) -> tuple[BaselineSpec, ...]:
 def _write_baseline(
     config: MRegimeConfig,
     spec: BaselineSpec,
-    train_tokens: torch.Tensor,
+    train_batches: tuple[TrainingTokenBatch, ...],
     eval_batch: BatchTensors,
 ) -> Path:
     run_dir = config.out_dir / spec.name
@@ -44,10 +44,12 @@ def _write_baseline(
     model = _build_seeded_model(config, spec)
     train_records = train_model(
         model=model,
-        tokens=train_tokens,
-        steps=config.train_steps,
-        lr=config.lr,
-        vocab_size=config.vocab_size,
+        batches=train_batches,
+        config=TrainingLoopConfig(
+            dry_run_seed=config.seed,
+            lr=config.lr,
+            vocab_size=config.vocab_size,
+        ),
     )
     model.eval()
     eval_tokens = eval_batch["tokens"]

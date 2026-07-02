@@ -6,10 +6,8 @@ from pathlib import Path
 import pytest
 import torch
 
-import grip.eval.headroom as headroom
 import grip.eval.headroom_runs as headroom_runs
 from grip.eval.headroom import MRegimeConfig, run_m_regime_smoke
-from grip.eval.headroom_training import BatchTensors
 from grip.eval.headroom_types import BaselineSpec
 from grip.models import ContentSparseTransformer, DenseTransformer
 
@@ -222,7 +220,9 @@ def test_m_regime_trained_run_records_training_budget(tmp_path: Path) -> None:
         assert resolved["train"]["lr"] == 1e-3
         assert resolved["data"]["task"] == "bayesian"
         assert resolved["run"]["device"] == "cpu"
-        assert json.loads(train_log[-1])["step"] == 1
+        record = json.loads(train_log[-1])
+        assert record["step"] == 1
+        assert record["seed"] == 0
 
 
 def test_m_regime_trained_run_uses_heldout_eval_batch(tmp_path: Path) -> None:
@@ -258,48 +258,29 @@ def test_m_regime_trained_run_uses_heldout_eval_batch(tmp_path: Path) -> None:
 
 def test_m_regime_trained_run_requests_disjoint_eval_seed(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Given: a headroom run with token generation calls observed at the boundary.
+    # Given: a headroom run with multiple deterministic training batches.
     config = MRegimeConfig(
         out_dir=tmp_path / "m-regime",
         seed=3,
-        train_steps=0,
+        train_steps=2,
         train_batch_size=2,
         eval_batch_size=1,
         eval_seed_offset=10_000,
     )
-    original_training_batch = headroom.training_batch
-    observed: list[tuple[int, int]] = []
-
-    def capture_training_batch(
-        *,
-        task: str,
-        seq_len: int,
-        vocab_size: int,
-        n_hypotheses: int,
-        batch_size: int,
-        seed: int,
-        device: str,
-    ) -> BatchTensors:
-        observed.append((seed, batch_size))
-        return original_training_batch(
-            task=task,
-            seq_len=seq_len,
-            vocab_size=vocab_size,
-            n_hypotheses=n_hypotheses,
-            batch_size=batch_size,
-            seed=seed,
-            device=device,
-        )
-
-    monkeypatch.setattr(headroom, "training_batch", capture_training_batch)
 
     # When: the M-regime gate runs.
-    run_m_regime_smoke(config)
+    result = run_m_regime_smoke(config)
 
-    # Then: train and eval batches come from disjoint deterministic seeds.
-    assert observed == [(3, 2), (10_003, 1)]
+    # Then: train and eval artifacts record disjoint deterministic seeds.
+    dense_dir = next(run_dir for run_dir in result.run_dirs if run_dir.name == "dense")
+    train_records = [
+        json.loads(line)
+        for line in (dense_dir / "train.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    eval_tensors = json.loads((dense_dir / "eval_tensors.json").read_text(encoding="utf-8"))
+    assert [record["seed"] for record in train_records] == [3, 4]
+    assert eval_tensors["seed"] == 10_003
 
 
 def test_m_regime_trained_run_rejects_invalid_training_budget(tmp_path: Path) -> None:
@@ -317,6 +298,20 @@ def test_m_regime_trained_run_rejects_invalid_eval_budget(tmp_path: Path) -> Non
 
     # When / Then: the headroom boundary rejects it before writing run claims.
     with pytest.raises(ValueError, match="eval_batch_size"):
+        run_m_regime_smoke(config)
+
+
+def test_m_regime_trained_run_rejects_eval_seed_overlap(tmp_path: Path) -> None:
+    # Given: an eval seed offset that overlaps a deterministic training step seed.
+    config = MRegimeConfig(
+        out_dir=tmp_path / "m-regime",
+        seed=0,
+        train_steps=3,
+        eval_seed_offset=2,
+    )
+
+    # When / Then: the headroom boundary rejects the overlapping split.
+    with pytest.raises(ValueError, match="eval_seed_offset"):
         run_m_regime_smoke(config)
 
 

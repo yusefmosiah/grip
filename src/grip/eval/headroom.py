@@ -5,7 +5,7 @@ import json
 import torch
 
 from .headroom_runs import write_baselines
-from .headroom_training import training_batch
+from .headroom_training import TrainingBatchRequest, training_batch, training_token_batches
 from .headroom_types import (
     HeadroomConfigError,
     HeadroomStatus,
@@ -20,14 +20,17 @@ def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
     _validate_config(config)
     torch.manual_seed(config.seed)
     config.out_dir.mkdir(parents=True, exist_ok=True)
-    train_batch = training_batch(
-        task=config.task,
-        seq_len=config.seq_len,
-        vocab_size=config.vocab_size,
-        n_hypotheses=config.n_hypotheses,
-        batch_size=config.train_batch_size,
-        seed=config.seed,
-        device=config.device,
+    train_batches = training_token_batches(
+        TrainingBatchRequest(
+            task=config.task,
+            seq_len=config.seq_len,
+            vocab_size=config.vocab_size,
+            n_hypotheses=config.n_hypotheses,
+            batch_size=config.train_batch_size,
+            seed=config.seed,
+            steps=config.train_steps,
+            device=config.device,
+        )
     )
     eval_seed = config.seed + config.eval_seed_offset
     eval_batch = training_batch(
@@ -39,7 +42,7 @@ def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
         seed=eval_seed,
         device=config.device,
     )
-    run_dirs = write_baselines(config, train_batch, eval_batch)
+    run_dirs = write_baselines(config, train_batches, eval_batch)
     comparison = compare(
         run_dirs,
         noise_floor_path=config.noise_floor_path,
@@ -96,6 +99,8 @@ def _validate_config(config: MRegimeConfig) -> None:
         raise HeadroomConfigError("eval_batch_size", "must be positive")
     if config.eval_seed_offset <= 0:
         raise HeadroomConfigError("eval_seed_offset", "must be positive")
+    if config.eval_seed_offset <= config.train_steps:
+        raise HeadroomConfigError("eval_seed_offset", "must exceed train_steps")
     if config.lr <= 0:
         raise HeadroomConfigError("lr", "must be positive")
     if config.device != "cpu":
