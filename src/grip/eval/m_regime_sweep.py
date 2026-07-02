@@ -11,6 +11,7 @@ from .headroom import MRegimeConfig, MRegimeResult, run_m_regime_smoke
 from .noise_floor import MIN_NOISE_FLOOR_SEEDS
 from .noise_floor_calibration import NoiseFloorCalibrationConfig, calibrate_noise_floor
 from .noise_floor_calibration_types import DEFAULT_CALIBRATION_SEED_OFFSET
+from .run_identity import scores_by_model_name
 
 
 JsonValue: TypeAlias = (
@@ -141,11 +142,11 @@ class _Losses:
 
 
 def _losses(result: MRegimeResult) -> _Losses:
-    by_name = {score.run_dir.name: score.metrics["loss"] for score in result.comparison.runs}
+    by_name = scores_by_model_name(result.comparison.runs)
     return _Losses(
-        dense=by_name["dense"],
-        local=by_name["local"],
-        content_sparse=by_name["content-sparse"],
+        dense=by_name["dense"].metrics["loss"],
+        local=by_name["local"].metrics["loss"],
+        content_sparse=by_name["content-sparse"].metrics["loss"],
     )
 
 

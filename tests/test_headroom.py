@@ -8,10 +8,14 @@ import torch
 
 import grip.eval.headroom_runs as headroom_runs
 from grip.eval.headroom_baselines import baseline_specs
-from grip.eval.headroom import MRegimeConfig, run_m_regime_smoke
+from grip.eval.headroom import MRegimeConfig, _headroom_status, run_m_regime_smoke
 from grip.eval.headroom_types import BaselineSpec
 from grip.eval.noise_floor_artifact import BASELINE_NAMES, attach_noise_floor_content_hash
+from grip.eval.score import compare
 from grip.models import ContentSparseTransformer, DenseTransformer
+
+from score_fixtures import write_noise_floor as write_score_noise_floor
+from score_fixtures import write_run
 
 
 BaselineModel = DenseTransformer | ContentSparseTransformer
@@ -138,6 +142,49 @@ def test_m_regime_smoke_writes_baseline_artifacts_and_comparison(tmp_path: Path)
         } <= set(metrics)
         assert 0.0 <= metrics["posterior_accuracy"] <= 1.0
         assert metrics["posterior_nll"] >= 0.0
+
+
+def test_headroom_status_uses_resolved_model_names_not_run_dir_names(tmp_path: Path) -> None:
+    noise_floor_path = write_score_noise_floor(tmp_path / "noise-floor.json")
+    payload = json.loads(noise_floor_path.read_text(encoding="utf-8"))
+    payload["minimum_signal_threshold"] = {"loss": 0.01}
+    payload["metric_ceilings"] = {"loss": 0.01}
+    payload["metric_deltas"] = {"loss": [0.01, -0.01, 0.0, 0.005, -0.005, 0.002, -0.002, 0.001]}
+    noise_floor_path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
+    dense = write_run(
+        tmp_path / "renamed-a",
+        {"loss": 0.10},
+        read_budget=None,
+    )
+    content = write_run(
+        tmp_path / "renamed-b",
+        {"loss": 0.13},
+        read_budget=None,
+    )
+    local = write_run(
+        tmp_path / "renamed-c",
+        {"loss": 0.11},
+        read_budget=None,
+    )
+    for run_dir, model_name in (
+        (dense, "dense"),
+        (content, "content-sparse"),
+        (local, "local"),
+    ):
+        resolved_path = run_dir / "config.resolved.json"
+        resolved = json.loads(resolved_path.read_text(encoding="utf-8"))
+        resolved["model"]["name"] = model_name
+        resolved_path.write_text(json.dumps(resolved, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    comparison = compare(
+        [dense, content, local],
+        tmp_path / "comparison.json",
+        noise_floor_path=noise_floor_path,
+        preregistered=True,
+    )
+
+    assert comparison.interpretable is True
+    assert _headroom_status(comparison) == "keep"
 
 
 def test_m_regime_smoke_blocks_without_noise_floor(tmp_path: Path) -> None:

@@ -13,6 +13,7 @@ from .headroom_types import (
     MRegimeResult,
 )
 from .m_regime_validity import run_tier, run_validity
+from .run_identity import scores_by_model_name
 from .score import compare
 from .score_types import ComparisonReport
 
@@ -85,7 +86,7 @@ def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
 def _headroom_status(comparison: ComparisonReport) -> HeadroomStatus:
     if not comparison.interpretable:
         return "blocked"
-    by_name = {score.run_dir.name: score for score in comparison.runs}
+    by_name = scores_by_model_name(comparison.runs)
     dense_loss = by_name["dense"].metrics["loss"]
     content_sparse_loss = by_name["content-sparse"].metrics["loss"]
     noise_floor = comparison.noise_floor

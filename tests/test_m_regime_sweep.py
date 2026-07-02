@@ -8,9 +8,24 @@ import pytest
 from grip.eval.m_regime_sweep import (
     MRegimeSweepConfig,
     _calibration_config,
+    _losses,
     main,
     run_m_regime_sweep,
 )
+from grip.eval.headroom_types import MRegimeResult
+from grip.eval.score import score_run
+from grip.eval.score_types import ComparisonReport
+
+from score_fixtures import write_run
+
+
+def _write_named_run(run_dir: Path, model_name: str, *, loss: float) -> Path:
+    write_run(run_dir, {"loss": loss})
+    resolved_path = run_dir / "config.resolved.json"
+    resolved = json.loads(resolved_path.read_text(encoding="utf-8"))
+    resolved["model"]["name"] = model_name
+    resolved_path.write_text(json.dumps(resolved, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return run_dir
 
 
 def test_m_regime_sweep_writes_summary_and_aggregate_reports(tmp_path: Path) -> None:
@@ -71,6 +86,32 @@ def test_m_regime_sweep_writes_summary_and_aggregate_reports(tmp_path: Path) -> 
     assert 0.0 <= diagnostics["content-sparse"]["decisive_token_recall"] <= 1.0
     assert result.aggregate.tasks[0].task == "bayesian"
     assert result.aggregate.tasks[0].decision.authorize_avsb is False
+
+
+def test_sweep_losses_use_resolved_model_names_not_run_dir_names(tmp_path: Path) -> None:
+    run_dirs = (
+        _write_named_run(tmp_path / "path-a", "content-sparse", loss=0.30),
+        _write_named_run(tmp_path / "path-b", "dense", loss=0.20),
+        _write_named_run(tmp_path / "path-c", "local", loss=0.25),
+    )
+    result = MRegimeResult(
+        run_dirs=run_dirs,
+        comparison=ComparisonReport(
+            runs=tuple(score_run(run_dir) for run_dir in run_dirs),
+            interpretable=False,
+            reason="test",
+            noise_floor=None,
+        ),
+        report_path=tmp_path / "report.json",
+        status="blocked",
+        authorize_avsb=False,
+    )
+
+    losses = _losses(result)
+
+    assert losses.dense == 0.20
+    assert losses.local == 0.25
+    assert losses.content_sparse == 0.30
 
 
 def test_m_regime_sweep_cli_prints_aggregate_summary_path(
