@@ -278,6 +278,9 @@ Similarly collapse the three provenance payload builders and drop the
 redundant flat/nested duplicate keys in `_artifact_payload`.
 
 ### P3.2 Dedup models and data
+**Status.** DONE across `94989e9` and `c084c85` (dense and sparse now share a
+causal transformer block implementation; Bayesian and reversal streams share
+source-aware posterior update and posterior-derived latent helpers).
 `_Block` (`dense.py:18-48`) and `LocalCausalBlock`
 (`sparse_components.py:41-75`) are near-identical — share one block class.
 `streams.py`/`reversal.py` duplicate the Bayesian update and derivative
