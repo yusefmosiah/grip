@@ -239,6 +239,8 @@ probe convergence reporting.
   pairs) so metadata provenance describes actual events.
 
 ### P2.4 Training-path test
+**Status.** DONE in `0802204` (CPU test overfits a repeated tiny batch through
+`train_model` and asserts cross-entropy decreases after real optimizer steps).
 Add a CPU test asserting loss decreases over N optimizer steps on a small
 model (guards P0.4's real trainer and `headroom_training.py`).
 
