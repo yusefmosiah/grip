@@ -294,10 +294,15 @@ future YAML-template contract without claiming executable YAML templates or a
 YAML loader already exist.
 
 ### P3.4 Model output typing
+**Status.** DONE in `6ee9f5d` (`DenseTransformer` and
+`ContentSparseTransformer` now return frozen output dataclasses, source
+consumers use attribute access, and tests assert the typed output contract).
 `forward` returning `dict[str, Tensor | SparseMetadata | None]` invites key
 typos across eval code — return a dataclass/TypedDict.
 
 ### P3.5 Robustness niceties
+**Status.** PARTIAL in `6ee9f5d` (dense now rejects sequences longer than
+`max_seq_len`, matching sparse's existing boundary check).
 - `dense.py:92`: validate `T <= max_seq_len` (sparse already does).
 - Key decision logic on explicit identifiers, not `run_dir.name` string
   lookups (`_headroom_status`, `_losses`).
