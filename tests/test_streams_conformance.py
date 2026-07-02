@@ -124,9 +124,9 @@ def test_different_seed_different_stream(stream):
 # ---------- latent consistency ----------
 
 def test_d_conf_matches_posterior(stream, sample):
-    """d_conf[t] = topmass[t] - topmass[t-1], zero at t=0."""
     topmass = sample.posterior.max(axis=1)
     expected = np.zeros_like(topmass)
+    expected[0] = topmass[0] - (1.0 / STREAM_KW["num_hypotheses"])
     expected[1:] = topmass[1:] - topmass[:-1]
     np.testing.assert_allclose(sample.d_conf, expected, atol=1e-8)
 
@@ -138,8 +138,53 @@ def test_belief_move_is_true_per_token_confidence_move(sample):
 def test_dd_conf_second_difference(stream, sample):
     topmass = sample.posterior.max(axis=1)
     expected = np.zeros_like(topmass)
+    expected[1] = (
+        topmass[1]
+        - (2.0 * topmass[0])
+        + (1.0 / STREAM_KW["num_hypotheses"])
+    )
     expected[2:] = topmass[2:] - 2 * topmass[1:-1] + topmass[:-2]
     np.testing.assert_allclose(sample.dd_conf, expected, atol=1e-8)
+
+
+def test_reversal_metadata_sorts_flip_steps_with_sources(monkeypatch: pytest.MonkeyPatch):
+    class ControlledRng:
+        def normal(self, loc, scale, size):
+            return np.zeros(size)
+
+        def integers(self, low, high=None, size=None):
+            if size == 2:
+                return np.asarray([40, 20], dtype=np.int64)
+            if low == 1 and high == 3:
+                return 2
+            if high is None:
+                return int(low - 1)
+            return int(low)
+
+        def beta(self, a, b, size):
+            return np.full(size, 0.5)
+
+        def choice(self, a, size=None, replace=True, p=None):
+            if size == 2 and replace is False:
+                return np.asarray([0, 1], dtype=np.int64)
+            if p is None:
+                return 0
+            return int(np.argmax(p))
+
+        def random(self, size=None):
+            if size == 2:
+                return np.asarray([1.0, 1.0])
+            return 0.0
+
+    rng = ControlledRng()
+    monkeypatch.setattr(np.random, "default_rng", lambda seed=None: rng)
+    stream = BayesianEvidenceStream(num_hypotheses=4, num_sources=3, seq_len=64, vocab_size=16, seed=0)
+    sample = stream.generate(seed=0)
+    flip_steps = sample.metadata["flip_steps"]
+    flip_srcs = sample.metadata["flip_srcs"]
+    flip_back = sample.metadata["flip_back"]
+
+    assert list(zip(flip_steps, flip_srcs, flip_back)) == [(20, 1, False), (40, 0, False)]
 
 
 def test_answer_is_argmax_final_posterior(sample):

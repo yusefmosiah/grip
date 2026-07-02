@@ -38,6 +38,7 @@ class RunScore:
 @dataclass(frozen=True, slots=True)
 class NoiseFloorArtifact:
     path: Path
+    content_hash: str
     seed_count: int
     seed_ids: tuple[int, ...]
     calibration_pairs: tuple[Mapping[str, JsonScalar], ...]
@@ -81,6 +82,7 @@ class ComparisonReport:
 
 
 class NoiseFloorPayload(TypedDict):
+    content_hash: str
     metric_ceilings: Mapping[str, float]
     minimum_signal_threshold: Mapping[str, float]
     path: str
@@ -93,6 +95,7 @@ def _noise_floor_payload(noise_floor: NoiseFloorArtifact | None) -> NoiseFloorPa
     if noise_floor is None:
         return None
     return {
+        "content_hash": noise_floor.content_hash,
         "metric_ceilings": dict(noise_floor.metric_ceilings),
         "minimum_signal_threshold": dict(noise_floor.minimum_signal_threshold),
         "path": str(noise_floor.path),

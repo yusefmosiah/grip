@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Final, Mapping, Sequence
 
+from .noise_floor_artifact import NOISE_FLOOR_CONTENT_HASH_VERSION, noise_floor_content_hash
 from .score_types import JsonScalar, JsonValue, NoiseFloorArtifact, NoiseFloorError
 
 
@@ -22,6 +23,7 @@ def load_noise_floor(path: Path) -> NoiseFloorArtifact:
     kind = raw.get("kind")
     if kind != "M-noise-floor":
         raise NoiseFloorError(path, "kind must be M-noise-floor")
+    _validate_content_hash(path, raw)
     seed_count = raw.get("seed_count")
     if not isinstance(seed_count, int) or isinstance(seed_count, bool):
         raise NoiseFloorError(path, "seed_count must be an integer")
@@ -50,6 +52,7 @@ def load_noise_floor(path: Path) -> NoiseFloorArtifact:
     )
     return NoiseFloorArtifact(
         path=path,
+        content_hash=raw["content_hash"],
         seed_count=seed_count,
         seed_ids=seed_ids,
         calibration_pairs=calibration_pairs,
@@ -87,16 +90,27 @@ def _parse_metric_delta_map(
         expected_ceiling = max(abs(delta) for delta in parsed)
         if expected_ceiling <= zero_tolerance:
             raise NoiseFloorError(path, f"metric {metric_name!r} has no measurable calibration spread")
-        if abs(metric_ceilings[metric_name] - expected_ceiling) > 1e-12:
-            raise NoiseFloorError(path, f"metric {metric_name!r} ceiling is stale")
         if metric_name not in minimum_signal_threshold:
             raise NoiseFloorError(path, f"metric {metric_name!r} missing minimum signal threshold")
-        if abs(minimum_signal_threshold[metric_name] - expected_ceiling) > 1e-12:
-            raise NoiseFloorError(path, f"metric {metric_name!r} minimum signal threshold is stale")
         metric_deltas[metric_name] = parsed
     if not metric_deltas:
         raise NoiseFloorError(path, "at least one metric delta series is required")
     return metric_deltas
+
+
+def _validate_content_hash(path: Path, raw: Mapping[str, JsonValue]) -> None:
+    version = raw.get("content_hash_version")
+    if version != NOISE_FLOOR_CONTENT_HASH_VERSION:
+        raise NoiseFloorError(path, f"content_hash_version must be {NOISE_FLOOR_CONTENT_HASH_VERSION}")
+    content_hash = raw.get("content_hash")
+    if not isinstance(content_hash, str):
+        raise NoiseFloorError(path, "content_hash must be a string")
+    try:
+        expected_hash = noise_floor_content_hash(raw)
+    except (TypeError, ValueError) as exc:
+        raise NoiseFloorError(path, "content_hash cannot be computed") from exc
+    if content_hash != expected_hash:
+        raise NoiseFloorError(path, "content_hash is stale")
 
 
 def _parse_metric_deltas(

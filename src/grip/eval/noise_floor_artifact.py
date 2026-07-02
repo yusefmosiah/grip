@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from typing import Sequence
+import hashlib
+import json
+from typing import TYPE_CHECKING, Mapping, Sequence
 
-from .noise_floor_calibration_types import NoiseFloorCalibrationConfig
 from .score_types import JsonValue
+
+if TYPE_CHECKING:
+    from .noise_floor_calibration_types import NoiseFloorCalibrationConfig
 
 
 BASELINE_NAMES: tuple[str, ...] = (
@@ -12,6 +16,19 @@ BASELINE_NAMES: tuple[str, ...] = (
     "content-sparse",
     "grip-read-A",
     "grip-select-B",
+)
+
+NOISE_FLOOR_CONTENT_HASH_VERSION = "noise-floor-authority-v1"
+
+_HASHED_AUTHORITY_FIELDS: tuple[str, ...] = (
+    "calibration",
+    "calibration_pairs",
+    "metric_ceilings",
+    "metric_deltas",
+    "minimum_signal_threshold",
+    "seed_count",
+    "seed_ids",
+    "zero_tolerance",
 )
 
 
@@ -57,7 +74,7 @@ def noise_floor_payload(
     metric_ceilings: dict[str, float],
     minimum_signal_threshold: dict[str, float],
 ) -> dict[str, JsonValue]:
-    return {
+    payload: dict[str, JsonValue] = {
         "calibration": calibration_payload(config),
         "calibration_pairs": list(pairs),
         "kind": "M-noise-floor",
@@ -71,3 +88,25 @@ def noise_floor_payload(
         "seed_ids": list(config.seed_ids),
         "zero_tolerance": config.minimum_signal_floor,
     }
+    return attach_noise_floor_content_hash(payload)
+
+
+def attach_noise_floor_content_hash(payload: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    payload["content_hash"] = noise_floor_content_hash(payload)
+    payload["content_hash_version"] = NOISE_FLOOR_CONTENT_HASH_VERSION
+    return payload
+
+
+def noise_floor_content_hash(payload: Mapping[str, JsonValue]) -> str:
+    authority = {
+        field: payload[field]
+        for field in _HASHED_AUTHORITY_FIELDS
+        if field in payload
+    }
+    canonical = json.dumps(
+        authority,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()

@@ -100,8 +100,10 @@ class SourceReliabilityReversalStream:
         np.log(posterior, out=log_posterior, where=posterior > 0)
         entropy = -(posterior * log_posterior).sum(axis=1)
         d_conf = np.zeros(self.T, dtype=np.float64)
+        d_conf[0] = topmass[0] - (1.0 / self.K)
         d_conf[1:] = topmass[1:] - topmass[:-1]
         dd_conf = np.zeros(self.T, dtype=np.float64)
+        dd_conf[1] = topmass[1] - (2.0 * topmass[0]) + (1.0 / self.K)
         dd_conf[2:] = topmass[2:] - 2 * topmass[1:-1] + topmass[:-2]
         decisive_idx = (np.abs(d_conf) >= 0.02).astype(np.int64)
         early_decisive_steps = [

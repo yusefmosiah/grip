@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Mapping
 
+from grip.eval.noise_floor_artifact import attach_noise_floor_content_hash
+
 
 def write_run(
     run_dir: Path,
@@ -104,5 +106,5 @@ def write_noise_floor(path: Path, *, seed_count: int = 8) -> Path:
         },
         "zero_tolerance": 1e-12,
     }
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
     return path

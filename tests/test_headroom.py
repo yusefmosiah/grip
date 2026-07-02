@@ -9,7 +9,7 @@ import torch
 import grip.eval.headroom_runs as headroom_runs
 from grip.eval.headroom import MRegimeConfig, run_m_regime_smoke
 from grip.eval.headroom_types import BaselineSpec
-from grip.eval.noise_floor_artifact import BASELINE_NAMES
+from grip.eval.noise_floor_artifact import BASELINE_NAMES, attach_noise_floor_content_hash
 from grip.models import ContentSparseTransformer, DenseTransformer
 
 
@@ -51,7 +51,7 @@ def _write_noise_floor(
         "seed_ids": list(range(8)),
         "zero_tolerance": 1e-12,
     }
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
     return path
 
 
@@ -84,7 +84,7 @@ def _write_accuracy_only_noise_floor(path: Path) -> Path:
         "seed_ids": list(range(8)),
         "zero_tolerance": 1e-12,
     }
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
     return path
 
 

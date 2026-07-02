@@ -104,9 +104,13 @@ class BayesianEvidenceStream:
         # flipping back. Sustained reliability dynamics — not a single event —
         # keep belief contested throughout the stream (prevents early collapse).
         n_flips = int(rng.integers(1, max(2, S)))
-        flip_srcs = rng.choice(S, size=n_flips, replace=False)
-        flip_steps = sorted(int(x) for x in rng.integers(T // 4, T, size=n_flips))
-        flip_back = rng.random(size=n_flips) < 0.5        # some flips revert later
+        raw_flip_srcs = rng.choice(S, size=n_flips, replace=False)
+        raw_flip_steps = rng.integers(T // 4, T, size=n_flips)
+        raw_flip_back = rng.random(size=n_flips) < 0.5
+        flip_events = sorted(
+            (int(step), int(src), bool(back))
+            for step, src, back in zip(raw_flip_steps, raw_flip_srcs, raw_flip_back)
+        )
 
         # --- forward simulate ---
         tokens = np.full(T, PAD_TOKEN, dtype=np.int64)
@@ -119,9 +123,9 @@ class BayesianEvidenceStream:
         r_current = r.copy()
         # schedule: (step, src, target_reliability)
         flip_schedule = []
-        for idx, (src, step) in enumerate(zip(flip_srcs, flip_steps)):
+        for step, src, flip_back in flip_events:
             flip_schedule.append((step, int(src), 1.0 - r[src]))
-            if flip_back[idx]:
+            if flip_back:
                 back_step = step + int(rng.integers(T // 8, T // 4))
                 if back_step < T:
                     flip_schedule.append((back_step, int(src), r[src]))
@@ -167,9 +171,13 @@ class BayesianEvidenceStream:
         entropy = -(posterior * log_posterior).sum(axis=1)
 
         d_conf = np.zeros(T)
-        d_conf[1:] = topmass[1:] - topmass[:-1]
+        if T:
+            d_conf[0] = topmass[0] - (1.0 / K)
+            d_conf[1:] = topmass[1:] - topmass[:-1]
         dd_conf = np.zeros(T)
-        dd_conf[2:] = topmass[2:] - 2 * topmass[1:-1] + topmass[:-2]
+        if T > 1:
+            dd_conf[1] = topmass[1] - (2.0 * topmass[0]) + (1.0 / K)
+            dd_conf[2:] = topmass[2:] - 2 * topmass[1:-1] + topmass[:-2]
 
         # decisive steps: those whose absolute belief move exceeds a fixed
         # threshold (not a quantile of survivors). A move of 0.02 on topmass
@@ -200,9 +208,9 @@ class BayesianEvidenceStream:
             metadata={
                 "h_star": h_star,
                 "reliability_init": r.tolist(),
-                "flip_srcs": [int(x) for x in flip_srcs],
-                "flip_steps": [int(x) for x in flip_steps],
-                "flip_back": [bool(x) for x in flip_back],
+                "flip_srcs": [src for _, src, _ in flip_events],
+                "flip_steps": [step for step, _, _ in flip_events],
+                "flip_back": [back for _, _, back in flip_events],
                 "natural_len": natural_len,
                 "block_size": block_size,
             },

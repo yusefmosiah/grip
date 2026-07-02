@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from grip.eval.noise_floor_artifact import attach_noise_floor_content_hash
 from grip.eval.score import compare, load_noise_floor, main, score_run
 
 from score_fixtures import write_noise_floor as _write_noise_floor
@@ -125,7 +126,7 @@ def test_compare_blocks_mismatched_noise_floor_config(tmp_path: Path) -> None:
     noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
     payload = json.loads(noise_floor_path.read_text(encoding="utf-8"))
     payload["calibration"]["data"]["seq_len"] = 1024
-    noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
+    noise_floor_path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
 
     # When: the comparison is explicitly marked preregistered.
     report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
@@ -147,7 +148,7 @@ def test_compare_blocks_smoke_tier_runs(tmp_path: Path) -> None:
     payload["calibration"]["eval"]["batch_size"] = 1
     payload["calibration"]["train"]["batch_size"] = 1
     payload["calibration"]["train"]["steps"] = 0
-    noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
+    noise_floor_path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
 
     # When: the comparison is explicitly marked preregistered.
     report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
@@ -202,7 +203,7 @@ def test_compare_does_not_require_noise_floor_for_token_bookkeeping(tmp_path: Pa
         "metric_deltas": {"loss": [0.01, -0.02, 0.0, 0.015, -0.01, 0.005, 0.02, -0.015]},
         "zero_tolerance": 1e-12,
     }
-    noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
+    noise_floor_path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
 
     # When: the comparison is explicitly marked preregistered.
     report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
@@ -219,7 +220,7 @@ def test_compare_blocks_threshold_only_noise_floor_metric(tmp_path: Path) -> Non
     noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
     payload = json.loads(noise_floor_path.read_text(encoding="utf-8"))
     payload["minimum_signal_threshold"]["loss"] = 0.02
-    noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
+    noise_floor_path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
 
     # When: the comparison is explicitly marked preregistered.
     report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
@@ -253,7 +254,7 @@ def test_compare_rejects_short_metric_delta_series_without_raising(tmp_path: Pat
     noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
     payload = json.loads(noise_floor_path.read_text(encoding="utf-8"))
     payload["metric_deltas"]["accuracy"] = [0.0] * 7
-    noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
+    noise_floor_path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
 
     # When: the comparison is written with stale noise-floor evidence.
     report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path)
@@ -279,6 +280,24 @@ def test_compare_rejects_malformed_noise_artifact_without_raising(tmp_path: Path
     saved = json.loads((tmp_path / "comparison.json").read_text(encoding="utf-8"))
     assert saved["interpretable"] is False
     assert saved["reason"] == "noise_floor_invalid"
+
+
+def test_compare_rejects_nonfinite_hashed_noise_artifact_without_raising(tmp_path: Path) -> None:
+    # Given: a noise-floor artifact with Python-accepted non-finite JSON in hashed authority.
+    run_a = _write_run(tmp_path / "run-a", {"accuracy": 0.70})
+    run_b = _write_run(tmp_path / "run-b", {"accuracy": 0.74})
+    noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
+    payload = json.loads(noise_floor_path.read_text(encoding="utf-8"))
+    payload["metric_ceilings"]["accuracy"] = float("nan")
+    payload["content_hash"] = "not-a-valid-hash"
+    noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    # When: the comparison is written with invalid noise-floor evidence.
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path)
+
+    # Then: malformed hash authority is reported as invalid evidence rather than raising.
+    assert report.interpretable is False
+    assert report.reason == "noise_floor_invalid"
 
 
 def test_load_noise_floor_requires_complete_authority_schema(tmp_path: Path) -> None:
@@ -327,7 +346,7 @@ def test_load_noise_floor_rejects_boolean_metric_values(tmp_path: Path) -> None:
     noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
     payload = json.loads(noise_floor_path.read_text(encoding="utf-8"))
     payload["minimum_signal_threshold"]["accuracy"] = True
-    noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
+    noise_floor_path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
     run_a = _write_run(tmp_path / "run-a", {"accuracy": 0.70})
     run_b = _write_run(tmp_path / "run-b", {"accuracy": 0.74})
 
@@ -361,7 +380,7 @@ def test_load_noise_floor_rejects_degenerate_metric_spread(tmp_path: Path) -> No
     payload["metric_deltas"]["accuracy"] = [0.0] * 8
     payload["metric_ceilings"]["accuracy"] = 0.0
     payload["minimum_signal_threshold"]["accuracy"] = 0.0
-    noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
+    noise_floor_path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
 
     # When / Then: loading rejects the degenerate calibration.
     run_a = _write_run(tmp_path / "run-a", {"accuracy": 0.70})

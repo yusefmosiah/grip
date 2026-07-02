@@ -88,6 +88,15 @@ def test_reversal_stream_posterior_update_uses_source_reliability():
     np.testing.assert_allclose(sample.posterior[t], expected, atol=1e-12)
 
 
+def test_reversal_stream_first_token_confidence_move_uses_uniform_prior():
+    stream = SourceReliabilityReversalStream(seq_len=96, seed=3)
+    sample = stream.generate(seed=11)
+    expected = sample.posterior[0].max() - (1.0 / stream.K)
+
+    np.testing.assert_allclose(sample.d_conf[0], expected, atol=1e-12)
+    assert sample.decisive_idx[0] == int(abs(expected) >= 0.02)
+
+
 def test_reversal_stream_source_trust_answer_mi_is_near_zero():
     # Given: many samples from the focused T1 task.
     stream = SourceReliabilityReversalStream(seq_len=96, seed=17)
