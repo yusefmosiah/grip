@@ -58,7 +58,7 @@ def r2_score(predicted: torch.Tensor, truth: torch.Tensor) -> float:
     ss_res = ((truth - predicted) ** 2).sum()
     ss_tot = ((truth - truth.mean()) ** 2).sum()
     if ss_tot.item() == 0:
-        return 0.0
+        return 1.0 if ss_res.item() == 0 else 0.0
     return float(1.0 - ss_res / ss_tot)
 
 
@@ -91,7 +91,7 @@ def decisive_token_recall(
     selected_blocks: torch.Tensor,
     decisive_idx: torch.Tensor,
     position_block_ids: torch.Tensor,
-) -> float:
+) -> float | None:
     """Fraction of decisive-evidence positions whose block was selected.
 
     selected_blocks: [B, T, top_k] long — block id selected per query position.
@@ -117,5 +117,5 @@ def decisive_token_recall(
     hits = (selected_blocks == own_block.unsqueeze(-1)).any(dim=-1)
     decisive_mask = decisive_idx.bool()
     if not decisive_mask.any():
-        return 0.0
+        return None
     return float(hits[decisive_mask].float().mean())

@@ -48,6 +48,17 @@ def test_r2_negative_when_worse_than_mean():
     assert M.r2_score(pred, y) < 0
 
 
+def test_r2_constant_target_exact_prediction_is_perfect():
+    y = torch.tensor([2.0, 2.0, 2.0])
+    assert M.r2_score(y, y) == 1.0
+
+
+def test_r2_constant_target_miss_is_noise_floor():
+    y = torch.tensor([2.0, 2.0, 2.0])
+    pred = torch.tensor([3.0, 3.0, 3.0])
+    assert M.r2_score(pred, y) == 0.0
+
+
 def test_recon_error_zero():
     a = torch.randn(4, 8)
     assert M.recon_error(a, a) < 1e-6
@@ -98,6 +109,14 @@ def test_decisive_token_recall_uses_explicit_position_block_ids():
     recall = M.decisive_token_recall(selected_blocks, decisive_idx, position_block_ids)
 
     assert abs(recall - (2.0 / 3.0)) < 1e-6
+
+
+def test_decisive_token_recall_returns_none_without_decisive_positions():
+    selected_blocks = torch.tensor([[[0], [0]]])
+    decisive_idx = torch.tensor([[0, 0]])
+    position_block_ids = torch.tensor([0, 0])
+
+    assert M.decisive_token_recall(selected_blocks, decisive_idx, position_block_ids) is None
 
 
 def test_decisive_token_recall_rejects_missing_position_block_shape():

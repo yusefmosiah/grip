@@ -61,3 +61,23 @@ def test_selection_diagnostics_labels_grip_selection_as_consumed() -> None:
     # Then: the report records that selected blocks are consumed by the model.
     assert diagnostics.attention_mode == "grip_select"
     assert diagnostics.selection_consumed is True
+
+
+def test_selection_diagnostics_serializes_missing_decisive_recall_as_null() -> None:
+    # Given: a sparse trace with no decisive positions.
+    selected_blocks = torch.tensor([[[0], [0]]])
+    decisive_idx = torch.tensor([[0, 0]])
+
+    # When: diagnostics are produced.
+    diagnostics = selection_diagnostics(
+        selected_blocks=selected_blocks,
+        decisive_idx=decisive_idx,
+        attention_mode="content_sparse",
+        block_size=2,
+        read_budget=1,
+    )
+
+    # Then: recall is explicitly not applicable rather than a zero score.
+    assert diagnostics.decisive_token_count == 0
+    assert diagnostics.decisive_token_recall is None
+    assert diagnostics.as_json()["decisive_token_recall"] is None

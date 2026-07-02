@@ -9,7 +9,7 @@ import torch
 from .metrics import decisive_token_recall
 
 
-SelectionDiagnosticJson = str | int | float | bool
+SelectionDiagnosticJson = str | int | float | bool | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +26,7 @@ class SelectionDiagnostics:
     attention_mode: str
     block_size: int
     decisive_token_count: int
-    decisive_token_recall: float
+    decisive_token_recall: float | None
     read_budget: int
     selection_consumed: bool
 
