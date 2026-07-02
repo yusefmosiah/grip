@@ -178,9 +178,10 @@ Write its G-doc. This is the first M-regime evidence that counts.
 ## P2 — Statistical and correctness bugs
 
 ### P2.1 Seed hygiene
-**Status.** PARTIAL in `ff8fa86`: `make_batch`, M-regime training batches, and
-noise-floor/sweep calibration seeds are partitioned. `run_probe_000.py` seed
-bases and `reversal.py` label derivation remain open.
+**Status.** DONE across `ff8fa86` and `df2d495`: `make_batch`, M-regime
+training batches, noise-floor/sweep calibration seeds, probe/backbone seed
+namespaces, and reversal labels are partitioned or RNG-derived without the
+old seed modulo cycle.
 - `make_batch` (`data/collate.py:44`): `seed*1000 + i` collides (seed=1,i=0 ==
   seed=0,i=1000) and train/eval disjointness rests on unvalidated invariants.
   Replace with a non-colliding scheme (e.g. hash/`SeedSequence`-spawned
