@@ -47,6 +47,8 @@ the floor's calibration payload and each run's resolved config; mismatch →
 blocked, with the differing fields named. Add a test with a mismatched floor.
 
 ### P0.3 Minimum-validity requirements for M-regime decisions
+**Status.** DONE in `77f311c` (scorer recomputes valid-tier minimums,
+smoke artifacts are unciteable, and aggregate summaries skip smoke rows).
 **Problem.** `MRegimeConfig` defaults (`headroom_types.py:38-44`) are
 `train_steps=0`, batch 1, seq_len 8; the sweep CLI inherits them. G010–G022
 decisions compared near-random initializations on a single eval batch —
