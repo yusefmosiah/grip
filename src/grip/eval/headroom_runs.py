@@ -9,6 +9,7 @@ from grip.models import ContentSparseTransformer, DenseTransformer
 from grip.models.outputs import ModelOutput, SparseModelOutput
 
 from .compute import compute_budget, compute_payload
+from .experiment_config import experiment_provenance_payload
 from .headroom_baselines import baseline_specs
 from .headroom_training import BatchTensors, TrainingLoopConfig, TrainingTokenBatch, next_token_loss, train_model
 from .headroom_types import BaselineSpec, HeadroomConfigError, MRegimeConfig, ResolvedJson
@@ -169,46 +170,29 @@ def _build_model(
 
 
 def _resolved_payload(config: MRegimeConfig, spec: BaselineSpec) -> Mapping[str, ResolvedJson]:
-    payload = {
+    payload = experiment_provenance_payload(
+        config,
+        decision_seed_count=config.decision_seed_count,
+        include_device=False,
+    )
+    model = payload["model"]
+    if not isinstance(model, dict):
+        raise HeadroomConfigError("model", "resolved payload model must be an object")
+    model["attention_mode"] = spec.attention_mode
+    model["name"] = spec.name
+    eval_payload = payload["eval"]
+    if not isinstance(eval_payload, dict):
+        raise HeadroomConfigError("eval", "resolved payload eval must be an object")
+    eval_payload["seed"] = config.seed + config.eval_seed_offset
+    payload.update({
         "artifact_schema_version": 1,
-        "data": {
-            "seq_len": config.seq_len,
-            "task": config.task,
-            "vocab_size": config.vocab_size,
-        },
-        "decision": {
-            "seed_count": config.decision_seed_count,
-        },
-        "model": {
-            "attention_mode": spec.attention_mode,
-            "d_model": config.d_model,
-            "n_heads": config.n_heads,
-            "n_hypotheses": config.n_hypotheses,
-            "n_layers": config.n_layers,
-            "name": spec.name,
-        },
         "read_budget": spec.read_budget,
         "run": {
             "device": config.device,
             "mode": "preregistered" if config.preregistered else "smoke",
         },
-        "eval": {
-            "batch_size": config.eval_batch_size,
-            "seed": config.seed + config.eval_seed_offset,
-            "seed_offset": config.eval_seed_offset,
-        },
         "seed": config.seed,
-        "sparse": {
-            "block_size": config.block_size,
-            "top_k_blocks": config.top_k_blocks,
-            "window": config.window,
-        },
-        "train": {
-            "batch_size": config.train_batch_size,
-            "lr": config.lr,
-            "steps": config.train_steps,
-        },
-    }
+    })
     validity_failures = run_validity(payload)
     tier = run_tier(payload)
     return {
