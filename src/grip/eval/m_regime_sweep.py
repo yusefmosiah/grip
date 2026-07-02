@@ -96,6 +96,7 @@ def _run_seed(config: MRegimeSweepConfig, noise_floor_path: Path, seed: int) -> 
         "interpretable": result.comparison.interpretable,
         "local": losses.local,
         "reason": result.comparison.reason,
+        "selection_diagnostics": _selection_diagnostics(result),
         "seed": seed,
         "status": result.status,
     }
@@ -140,6 +141,15 @@ def _losses(result: MRegimeResult) -> _Losses:
         local=by_name["local"],
         content_sparse=by_name["content-sparse"],
     )
+
+
+def _selection_diagnostics(result: MRegimeResult) -> dict[str, JsonValue]:
+    diagnostics: dict[str, JsonValue] = {}
+    for run_dir in result.run_dirs:
+        diagnostics_path = run_dir / "selection_diagnostics.json"
+        if diagnostics_path.exists():
+            diagnostics[run_dir.name] = json.loads(diagnostics_path.read_text(encoding="utf-8"))
+    return diagnostics
 
 
 def _summary_payload(

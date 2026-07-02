@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Mapping, TypeAlias
 
 import torch
 import torch.nn.functional as F
@@ -10,6 +10,7 @@ from grip.data import BayesianEvidenceStream, SourceReliabilityReversalStream, m
 from grip.models import ContentSparseTransformer, DenseTransformer
 
 
+BatchTensors: TypeAlias = Mapping[str, torch.Tensor]
 TrainRecord = Mapping[str, int | float | str | Mapping[str, float]]
 
 
@@ -32,8 +33,29 @@ def training_tokens(
     seed: int,
     device: str,
 ) -> torch.Tensor:
+    return training_batch(
+        task=task,
+        seq_len=seq_len,
+        vocab_size=vocab_size,
+        n_hypotheses=n_hypotheses,
+        batch_size=batch_size,
+        seed=seed,
+        device=device,
+    )["tokens"]
+
+
+def training_batch(
+    *,
+    task: str,
+    seq_len: int,
+    vocab_size: int,
+    n_hypotheses: int,
+    batch_size: int,
+    seed: int,
+    device: str,
+) -> BatchTensors:
     stream = _stream(task, seq_len, vocab_size, n_hypotheses, seed)
-    return make_batch(stream, n=batch_size, seed=seed, device=device)["tokens"]
+    return make_batch(stream, n=batch_size, seed=seed, device=device)
 
 
 def _stream(

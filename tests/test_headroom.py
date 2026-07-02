@@ -129,6 +129,36 @@ def test_m_regime_smoke_records_matched_budget_metadata(tmp_path: Path) -> None:
     assert metadata_by_name["content-sparse"]["model"]["attention_mode"] == "content_sparse"
 
 
+def test_m_regime_smoke_writes_report_only_selection_diagnostics(tmp_path: Path) -> None:
+    # Given: a tiny smoke config with sparse baselines.
+    config = MRegimeConfig(out_dir=tmp_path / "m-regime", block_size=2, top_k_blocks=2)
+
+    # When: the M-regime gate writes baseline artifacts.
+    result = run_m_regime_smoke(config)
+
+    # Then: sparse baselines get report-only selection diagnostics from eval latents.
+    diagnostics_by_name = {}
+    for run_dir in result.run_dirs:
+        diagnostics_path = run_dir / "selection_diagnostics.json"
+        if run_dir.name == "dense":
+            assert not diagnostics_path.exists()
+        else:
+            diagnostics_by_name[run_dir.name] = json.loads(
+                diagnostics_path.read_text(encoding="utf-8")
+            )
+    assert diagnostics_by_name["local"]["attention_mode"] == "local"
+    assert diagnostics_by_name["local"]["selection_consumed"] is False
+    assert diagnostics_by_name["local"]["block_size"] == 2
+    assert diagnostics_by_name["local"]["read_budget"] == 2
+    assert diagnostics_by_name["content-sparse"]["attention_mode"] == "content_sparse"
+    assert diagnostics_by_name["content-sparse"]["selection_consumed"] is True
+    assert diagnostics_by_name["content-sparse"]["block_size"] == 2
+    assert diagnostics_by_name["content-sparse"]["read_budget"] == 2
+    assert isinstance(diagnostics_by_name["content-sparse"]["decisive_token_count"], int)
+    assert 0.0 <= diagnostics_by_name["content-sparse"]["decisive_token_recall"] <= 1.0
+    assert result.authorize_avsb is False
+
+
 def test_m_regime_smoke_uses_matched_initialization_in_run_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -237,10 +267,10 @@ def test_m_regime_trained_run_requests_disjoint_eval_seed(
         eval_batch_size=1,
         eval_seed_offset=10_000,
     )
-    original_training_tokens = headroom.training_tokens
+    original_training_batch = headroom.training_batch
     observed: list[tuple[int, int]] = []
 
-    def capture_training_tokens(
+    def capture_training_batch(
         *,
         task: str,
         seq_len: int,
@@ -249,9 +279,9 @@ def test_m_regime_trained_run_requests_disjoint_eval_seed(
         batch_size: int,
         seed: int,
         device: str,
-    ) -> torch.Tensor:
+    ) -> headroom.BatchTensors:
         observed.append((seed, batch_size))
-        return original_training_tokens(
+        return original_training_batch(
             task=task,
             seq_len=seq_len,
             vocab_size=vocab_size,
@@ -261,7 +291,7 @@ def test_m_regime_trained_run_requests_disjoint_eval_seed(
             device=device,
         )
 
-    monkeypatch.setattr(headroom, "training_tokens", capture_training_tokens)
+    monkeypatch.setattr(headroom, "training_batch", capture_training_batch)
 
     # When: the M-regime gate runs.
     run_m_regime_smoke(config)

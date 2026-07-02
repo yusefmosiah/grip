@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 from grip.models import ContentSparseTransformer, DenseTransformer
 
-from .headroom_training import train_model, training_tokens
+from .headroom_training import BatchTensors, train_model, training_batch
 from .headroom_types import (
     BaselineSpec as _BaselineSpec,
     HeadroomConfigError,
@@ -20,13 +20,14 @@ from .headroom_types import (
 )
 from .score import compare
 from .score_types import ComparisonReport
+from .selection_diagnostics import write_selection_diagnostics
 
 
 def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
     _validate_config(config)
     torch.manual_seed(config.seed)
     config.out_dir.mkdir(parents=True, exist_ok=True)
-    train_tokens = training_tokens(
+    train_batch = training_batch(
         task=config.task,
         seq_len=config.seq_len,
         vocab_size=config.vocab_size,
@@ -36,7 +37,7 @@ def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
         device=config.device,
     )
     eval_seed = config.seed + config.eval_seed_offset
-    eval_tokens = training_tokens(
+    eval_batch = training_batch(
         task=config.task,
         seq_len=config.seq_len,
         vocab_size=config.vocab_size,
@@ -46,7 +47,7 @@ def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
         device=config.device,
     )
     run_dirs = tuple(
-        _write_baseline(config, spec, train_tokens, eval_tokens)
+        _write_baseline(config, spec, train_batch["tokens"], eval_batch)
         for spec in _baseline_specs(config)
     )
     comparison = compare(
@@ -93,7 +94,7 @@ def _write_baseline(
     config: MRegimeConfig,
     spec: _BaselineSpec,
     train_tokens: torch.Tensor,
-    eval_tokens: torch.Tensor,
+    eval_batch: BatchTensors,
 ) -> Path:
     run_dir = config.out_dir / spec.name
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -106,11 +107,21 @@ def _write_baseline(
         vocab_size=config.vocab_size,
     )
     model.eval()
+    eval_tokens = eval_batch["tokens"]
     with torch.no_grad():
         out = model(eval_tokens)
         loss = F.cross_entropy(
             out["lm_logits"][:, :-1].reshape(-1, config.vocab_size),
             eval_tokens[:, 1:].reshape(-1),
+        )
+    if spec.attention_mode is not None and spec.read_budget is not None:
+        write_selection_diagnostics(
+            run_dir / "selection_diagnostics.json",
+            selected_blocks=out["selected_blocks"],
+            decisive_idx=eval_batch["decisive_idx"],
+            attention_mode=spec.attention_mode,
+            block_size=config.block_size,
+            read_budget=spec.read_budget,
         )
     eval_seed = config.seed + config.eval_seed_offset
     (run_dir / "config.resolved.json").write_text(

@@ -52,6 +52,12 @@ def test_m_regime_sweep_writes_summary_and_aggregate_reports(tmp_path: Path) -> 
     rows = payload["bayesian"]["rows"]
     assert len(rows) == 8
     assert all(row["interpretable"] is True for row in rows)
+    diagnostics = rows[0]["selection_diagnostics"]
+    assert diagnostics["local"]["attention_mode"] == "local"
+    assert diagnostics["local"]["selection_consumed"] is False
+    assert diagnostics["content-sparse"]["attention_mode"] == "content_sparse"
+    assert diagnostics["content-sparse"]["selection_consumed"] is True
+    assert 0.0 <= diagnostics["content-sparse"]["decisive_token_recall"] <= 1.0
     assert result.aggregate.tasks[0].task == "bayesian"
     assert result.aggregate.tasks[0].decision.authorize_avsb is False
 
