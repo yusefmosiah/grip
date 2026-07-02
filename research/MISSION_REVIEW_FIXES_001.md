@@ -310,6 +310,10 @@ directory basenames).
   lookups (`_headroom_status`, `_losses`).
 
 ### P3.6 CI and test hygiene
+**Status.** DONE in `6980ffb` (GitHub Actions now runs the CPU pytest suite on
+Linux; the MPS smoke check skips on non-MPS hosts; stale smoke placeholders are
+real fixed-shape/probe toy tests; repo hygiene asserts `.omo/`, `runs/`,
+`checkpoints/`, and `*.pt` artifacts stay ignored).
 - Add GitHub Actions running the CPU-only suite on Linux.
 - `test_smoke.py:9-11`: hard MPS assert → `pytest.mark.skipif` (match
   `test_dense_model.py:43`); fill or delete the two stale
