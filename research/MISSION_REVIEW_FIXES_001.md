@@ -280,16 +280,15 @@ redundant flat/nested duplicate keys in `_artifact_payload`.
 derivation (~40 lines) — extract a shared helper.
 
 ### P3.3 Kill dead code / wire promised code
-**Status.** PARTIAL across `41cf47d`, `2ab3bd4`, and `eae3bba`: baseline naming
-now has one source of truth via `headroom_baselines.py`, shared by noise-floor
-artifacts, calibration, and headroom run generation; stream-level
+**Status.** PARTIAL across `41cf47d`, `2ab3bd4`, `eae3bba`, and `4abcb92`:
+baseline naming now has one source of truth via `headroom_baselines.py`, shared
+by noise-floor artifacts, calibration, and headroom run generation; stream-level
 `block_boundaries` were removed so configured model/eval `block_size` is the
 only block authority; `sweep_plan.py` now marks the SPEC-003 sweep matrix as
-declaration-only and rejects artifacts that claim runner-consumable status.
+declaration-only and rejects artifacts that claim runner-consumable status;
+headroom runs now write report-only posterior accuracy/NLL/Brier/ECE and
+source-answer MI metrics without making them noise-floor gate requirements.
 Remaining bullets below are still open.
-- `metrics.accuracy/nll/brier_score/ece/mutual_info_discrete`: exported,
-  promised in the `__init__.py` docstring, computed by nothing — wire into
-  eval reports or prune.
 - Unify naming: `"local-only"` (sweep_plan) vs `"local"` (runner); single
   source of truth for baseline names shared by `noise_floor_calibration.
   BASELINE_NAMES` and `_baseline_specs`.
