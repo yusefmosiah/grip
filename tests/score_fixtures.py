@@ -54,7 +54,7 @@ def run_config(name: str, *, seq_len: int | None = None, valid: bool = True) -> 
         "data": {"seq_len": resolved_seq_len, "task": "bayesian", "vocab_size": 17},
         "eval": {"batch_size": eval_batch_size, "seed": 10_000, "seed_offset": 10_000},
         "model": {
-            "attention_mode": None,
+            "attention_mode": None if name == "dense" else name.replace("-", "_"),
             "d_model": 16,
             "n_heads": 4,
             "n_hypotheses": 3,

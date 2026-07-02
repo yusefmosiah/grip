@@ -64,6 +64,46 @@ def test_compare_blocks_read_budget_mismatch(tmp_path: Path) -> None:
     assert report.compute_mismatches == ("compute.read_budget",)
 
 
+def test_compare_allows_dense_reference_without_sparse_read_budget(tmp_path: Path) -> None:
+    # Given: dense is a full-attention reference, while sparse variants share a budget.
+    dense = write_run(tmp_path / "dense", {"accuracy": 0.70}, read_budget=None)
+    local = write_run(tmp_path / "local", {"accuracy": 0.72}, read_budget=4)
+    content = write_run(tmp_path / "content-sparse", {"accuracy": 0.74}, read_budget=4)
+    noise_floor_path = write_noise_floor(tmp_path / "noise-floor.json")
+
+    # When: the comparison is explicitly marked preregistered.
+    report = compare(
+        [dense, local, content],
+        tmp_path / "comparison.json",
+        noise_floor_path=noise_floor_path,
+        preregistered=True,
+    )
+
+    # Then: read-budget matching is enforced among budgeted runs, not the dense reference.
+    assert report.interpretable is True
+    assert report.compute_mismatches == ()
+
+
+def test_compare_blocks_missing_sparse_read_budget_against_budgeted_peer(tmp_path: Path) -> None:
+    # Given: one sparse run is missing its budget while another sparse run declares it.
+    content = write_run(tmp_path / "content-sparse", {"accuracy": 0.74}, read_budget=None)
+    grip = write_run(tmp_path / "local", {"accuracy": 0.73}, read_budget=4)
+    noise_floor_path = write_noise_floor(tmp_path / "noise-floor.json")
+
+    # When: the comparison is explicitly marked preregistered.
+    report = compare(
+        [content, grip],
+        tmp_path / "comparison.json",
+        noise_floor_path=noise_floor_path,
+        preregistered=True,
+    )
+
+    # Then: only dense full-attention is exempt from sparse read-budget matching.
+    assert report.interpretable is False
+    assert report.reason == "compute_mismatch"
+    assert report.compute_mismatches == ("compute.read_budget",)
+
+
 def test_headroom_writer_emits_compute_accounting(tmp_path: Path) -> None:
     # Given: the real headroom artifact writer on a tiny smoke config.
     config = MRegimeConfig(out_dir=tmp_path / "m-regime", top_k_blocks=2)

@@ -67,7 +67,11 @@ def run_compute(run_dir: Path) -> Mapping[str, float | int | None]:
 
 def compute_mismatches(scores: Sequence[RunScore], tolerance: float) -> tuple[str, ...]:
     mismatches: list[str] = []
-    read_budgets = {score.compute.get("read_budget") for score in scores}
+    read_budgets = {
+        score.compute.get("read_budget")
+        for score in scores
+        if not _is_dense_full_reference(score)
+    }
     if len(read_budgets) > 1:
         mismatches.append("compute.read_budget")
     for field in ("parameter_count", "estimated_forward_flops"):
@@ -88,6 +92,19 @@ def compute_mismatches(scores: Sequence[RunScore], tolerance: float) -> tuple[st
         if (maximum - minimum) / maximum > tolerance:
             mismatches.append(f"compute.{field}")
     return tuple(sorted(set(mismatches)))
+
+
+def _is_dense_full_reference(score: RunScore) -> bool:
+    config_payload = _load_optional_json(score.run_dir / "config.resolved.json")
+    if not isinstance(config_payload, dict):
+        return False
+    model_payload = config_payload.get("model")
+    model = model_payload if isinstance(model_payload, dict) else {}
+    return (
+        model.get("name") == "dense"
+        and model.get("attention_mode") is None
+        and score.compute.get("read_budget") is None
+    )
 
 
 def _load_optional_json(path: Path) -> JsonValue:
