@@ -4,7 +4,13 @@ import torch
 import pytest
 
 from grip.analysis.probe import ProbeExperimentResult, ProbeResult, linear_probe, run_probe_experiment
+from grip.analysis.probe_training import (
+    BACKBONE_BATCH_SEED_STRIDE,
+    BACKBONE_SEED_LIMIT,
+    backbone_batch_seed_base,
+)
 from grip.analysis.run_probe_000 import (
+    PROBE_SEED_LIMIT,
     PROBE_TEST_SEED_BASE,
     PROBE_TRAIN_SEED_BASE,
     SEED_STRIDE,
@@ -97,6 +103,7 @@ def test_main_reports_derivative_supervision_metadata(tmp_path):
         "dd_conf_loss",
     }
     assert report["run"]["n_steps"] == 1
+    assert report["run"]["backbone_batch_seed_base"] == backbone_batch_seed_base(0)
     assert report["run"]["lr"] == 1e-3
     assert report["model"] == {"d_model": 16, "n_layers": 1, "n_heads": 4}
     assert report["stream"]["seq_len"] == 8
@@ -180,13 +187,40 @@ def test_linear_probe_warns_for_positional_legacy_optimizer_args():
 
 
 def test_default_runner_probe_seed_ranges_do_not_overlap_training_ranges():
-    for seed in range(3):
-        train_base, test_base = probe_seed_bases(seed)
-        seed_seq = seed * 13 + 1
-        online_training_first = seed_seq * 1000
-        online_training_last = (seed_seq + 1500 - 1) * 1000 + 8 - 1
+    n_steps = 1500
+    n_train_streams = 200
+    n_test_streams = 80
+
+    seed_limit = min(PROBE_SEED_LIMIT, BACKBONE_SEED_LIMIT)
+    for seed in (0, 1, seed_limit - 1):
+        train_base, test_base = probe_seed_bases(
+            seed,
+            n_train_streams=n_train_streams,
+            n_test_streams=n_test_streams,
+        )
+        batch_base = backbone_batch_seed_base(seed)
+        backbone_training_seeds = range(batch_base, batch_base + n_steps)
+        probe_train_seeds = range(train_base, train_base + n_train_streams)
+        probe_test_seeds = range(test_base, test_base + n_test_streams)
 
         assert train_base == PROBE_TRAIN_SEED_BASE + seed * SEED_STRIDE
         assert test_base == PROBE_TEST_SEED_BASE + seed * SEED_STRIDE
-        assert train_base > online_training_last
-        assert test_base > train_base + 200
+        assert batch_base + n_steps <= batch_base + BACKBONE_BATCH_SEED_STRIDE
+        assert set(backbone_training_seeds).isdisjoint(probe_train_seeds)
+        assert set(backbone_training_seeds).isdisjoint(probe_test_seeds)
+        assert set(probe_train_seeds).isdisjoint(probe_test_seeds)
+
+
+def test_probe_seed_bases_reject_ranges_that_would_cross_namespaces():
+    with pytest.raises(ValueError, match="seed"):
+        probe_seed_bases(min(PROBE_SEED_LIMIT, BACKBONE_SEED_LIMIT))
+    with pytest.raises(ValueError, match="probe stream counts"):
+        probe_seed_bases(0, n_train_streams=SEED_STRIDE, n_test_streams=1)
+
+
+def test_backbone_seed_namespace_stays_below_probe_namespaces():
+    last_backbone_seed = BACKBONE_SEED_LIMIT - 1
+    last_backbone_base = backbone_batch_seed_base(last_backbone_seed)
+    assert last_backbone_base + BACKBONE_BATCH_SEED_STRIDE <= PROBE_TRAIN_SEED_BASE
+    with pytest.raises(ValueError, match="backbone namespace"):
+        backbone_batch_seed_base(BACKBONE_SEED_LIMIT)

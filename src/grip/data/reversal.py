@@ -28,8 +28,10 @@ class SourceReliabilityReversalStream:
     def generate(self, seed: int | None = None) -> StreamSample:
         sample_seed = self.seed if seed is None else seed
         rng = np.random.default_rng(sample_seed)
-        h_star = int(sample_seed % self.K)
         schedule_code = sample_seed // self.K
+        label_slot = int(sample_seed % self.K)
+        label_rng = np.random.default_rng(self.seed * 1_000_003 + schedule_code)
+        h_star = int(label_rng.permutation(self.K)[label_slot])
         natural_low = max(12, (self.T * 3) // 4)
         natural_span = self.T - natural_low + 1
         natural_len = natural_low + int(schedule_code % natural_span)
@@ -69,7 +71,9 @@ class SourceReliabilityReversalStream:
             else:
                 src = int(rng.choice(self.S, p=post_source_probs))
             source_idx[t] = src
-            informative = t in early_candidate_steps or rng.random() < trust[src]
+            informative = t >= early_start and (
+                t in early_candidate_steps or rng.random() < trust[src]
+            )
             if informative:
                 tok_dist = self._likelihood[:, h_star]
                 tok = int(rng.choice(self.vocab_size - 1, p=tok_dist)) + 1
@@ -112,7 +116,7 @@ class SourceReliabilityReversalStream:
 
         return StreamSample(
             tokens=tokens,
-            answer=int(posterior[-1].argmax()),
+            answer=h_star,
             posterior=posterior,
             entropy=entropy,
             belief_move=d_conf.copy(),

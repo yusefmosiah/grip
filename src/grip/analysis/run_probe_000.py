@@ -15,14 +15,23 @@ from typing import Final
 
 from grip.data import BayesianEvidenceStream
 from .probe import ProbeExperimentResult, run_probe_experiment
-from .probe_training import SupervisionWeights, train_backbone, train_backbone_with_report
+from .probe_training import (
+    BACKBONE_BATCH_SEED_STRIDE,
+    BACKBONE_SEED_LIMIT,
+    SupervisionWeights,
+    backbone_batch_seed_base,
+    train_backbone,
+    train_backbone_with_report,
+)
 
 
 LEVEL_CONTROL_R2_THRESHOLD: Final = 0.5
 DERIVATIVE_R2_THRESHOLD: Final = 0.2
-PROBE_TRAIN_SEED_BASE: Final = 10_000_000
-PROBE_TEST_SEED_BASE: Final = 20_000_000
+PROBE_TRAIN_SEED_BASE: Final = 10_000_000_000_000
+PROBE_TEST_SEED_BASE: Final = 20_000_000_000_000
 SEED_STRIDE: Final = 1_000_000
+PROBE_SEED_LIMIT: Final = (PROBE_TEST_SEED_BASE - PROBE_TRAIN_SEED_BASE) // SEED_STRIDE
+__all__: Final = ("main", "probe_seed_bases", "train_backbone")
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +41,22 @@ class ProbeInterpretation:
     message: str
 
 
-def probe_seed_bases(seed: int) -> tuple[int, int]:
+def probe_seed_bases(
+    seed: int,
+    *,
+    n_train_streams: int = 200,
+    n_test_streams: int = 80,
+) -> tuple[int, int]:
+    seed_limit = min(PROBE_SEED_LIMIT, BACKBONE_SEED_LIMIT)
+    if seed < 0 or seed >= seed_limit:
+        msg = f"seed must be in [0, {seed_limit}) for disjoint probe/backbone namespaces"
+        raise ValueError(msg)
+    if n_train_streams < 0 or n_test_streams < 0:
+        msg = "probe stream counts must be non-negative"
+        raise ValueError(msg)
+    if max(n_train_streams, n_test_streams) >= SEED_STRIDE:
+        msg = "probe stream counts must fit within the per-seed stride"
+        raise ValueError(msg)
     return (
         PROBE_TRAIN_SEED_BASE + seed * SEED_STRIDE,
         PROBE_TEST_SEED_BASE + seed * SEED_STRIDE,
@@ -91,7 +115,8 @@ def main(
     lm_weight=0.1, aux_weight=5.0, topmass_weight=10.0, entropy_weight=3.0,
     d_conf_weight=0.0, dd_conf_weight=0.0,
 ):
-    out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
     stream = BayesianEvidenceStream(
         num_hypotheses=4, num_sources=3, seq_len=seq_len, vocab_size=64, seed=seed,
     )
@@ -118,8 +143,15 @@ def main(
     )
     for p in training_result.model.parameters():
         p.requires_grad_(False)  # freeze
-    print(f"\n=== running probe experiment (gating experiment #0) ===")
-    probe_train_seed_base, probe_test_seed_base = probe_seed_bases(seed)
+    print("\n=== running probe experiment (gating experiment #0) ===")
+    if n_steps >= BACKBONE_BATCH_SEED_STRIDE:
+        msg = "n_steps must fit within the per-backbone seed stride"
+        raise ValueError(msg)
+    probe_train_seed_base, probe_test_seed_base = probe_seed_bases(
+        seed,
+        n_train_streams=n_train_streams,
+        n_test_streams=n_test_streams,
+    )
     res = run_probe_experiment(
         training_result.model, stream, n_train_streams=n_train_streams,
         n_test_streams=n_test_streams, seed=seed, device=device,
@@ -153,6 +185,7 @@ def main(
         },
         "run": {
             "seed": seed,
+            "backbone_batch_seed_base": backbone_batch_seed_base(seed),
             "n_steps": n_steps,
             "batch": batch,
             "lr": lr,

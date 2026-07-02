@@ -11,6 +11,11 @@ from grip.data import make_batch
 from grip.models import DenseTransformer
 
 
+BACKBONE_BATCH_SEED_BASE = 1_000_000_000
+BACKBONE_BATCH_SEED_STRIDE = 1_000_000
+BACKBONE_SEED_LIMIT = 9_000
+
+
 @dataclass(frozen=True, slots=True)
 class SupervisionWeights:
     lm: float = 0.1
@@ -64,6 +69,13 @@ class AuxiliaryHeads:
 class TrainingResult:
     model: DenseTransformer
     final_losses: AuxiliaryLosses
+
+
+def backbone_batch_seed_base(seed: int) -> int:
+    if seed < 0 or seed >= BACKBONE_SEED_LIMIT:
+        msg = f"seed must be in [0, {BACKBONE_SEED_LIMIT}) for disjoint backbone namespace"
+        raise ValueError(msg)
+    return BACKBONE_BATCH_SEED_BASE + seed * BACKBONE_BATCH_SEED_STRIDE
 
 
 def _masked_scalar_mse(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -155,7 +167,10 @@ def train_backbone_with_report(
         + list(heads.dd_conf.parameters()),
         lr=lr,
     )
-    seed_seq = seed * 13 + 1
+    seed_seq = backbone_batch_seed_base(seed)
+    if n_steps >= BACKBONE_BATCH_SEED_STRIDE:
+        msg = "n_steps must fit within the per-backbone seed stride"
+        raise ValueError(msg)
     t0 = time.time()
     final_losses = AuxiliaryLosses(topmass=0.0, entropy=0.0, d_conf=0.0, dd_conf=0.0)
     for step in range(n_steps):

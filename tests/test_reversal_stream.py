@@ -27,7 +27,7 @@ def test_reversal_stream_marks_early_decisive_source_that_later_reverses():
     assert all(sample.source_idx[t] == reversal_source for t in decisive_steps)
     assert all(sample.decisive_idx[t] == 1 for t in decisive_steps)
     assert sample.source_trust[0, reversal_source] > sample.source_trust[-1, reversal_source]
-    assert sample.answer == int(sample.posterior[-1].argmax())
+    assert sample.answer == sample.metadata["h_star"]
 
 
 def test_reversal_stream_does_not_force_answer_token_at_early_decisive_steps():
@@ -107,6 +107,23 @@ def test_reversal_stream_source_trust_answer_mi_is_near_zero():
 
     # Then: source-trust trajectory is orthogonal to the label.
     assert mi < 0.02
+
+
+def test_reversal_stream_draws_label_from_rng_not_seed_cycle():
+    # Given: a focused reversal stream over consecutive sample seeds.
+    stream = SourceReliabilityReversalStream(seq_len=96, seed=17)
+
+    # When: generated labels are compared with the legacy seed modulo pattern.
+    labels = [
+        stream.generate(seed=seed).metadata["h_star"]
+        for seed in range(16)
+    ]
+    legacy_cycle = [seed % stream.K for seed in range(16)]
+
+    # Then: labels are RNG draws, not a deterministic seed-derived cycle.
+    assert labels != legacy_cycle
+    assert set(labels) <= set(range(stream.K))
+    assert len(set(labels)) > 1
 
 
 def test_collate_includes_source_idx_and_belief_move():
