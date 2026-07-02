@@ -280,12 +280,11 @@ redundant flat/nested duplicate keys in `_artifact_payload`.
 derivation (~40 lines) — extract a shared helper.
 
 ### P3.3 Kill dead code / wire promised code
-**Status.** PARTIAL in `41cf47d`: baseline naming now has one source of truth
-via `headroom_baselines.py`, shared by noise-floor artifacts, calibration, and
-headroom run generation. Remaining bullets below are still open.
-- `block_boundaries`: produced and collated, consumed by nothing; either the
-  model consumes it (fixing the data/model block-size mismatch —
-  `streams.py:183` emits T//16 boundaries, model hardcodes 32) or delete it.
+**Status.** PARTIAL across `41cf47d` and `2ab3bd4`: baseline naming now has one
+source of truth via `headroom_baselines.py`, shared by noise-floor artifacts,
+calibration, and headroom run generation; stream-level `block_boundaries` were
+removed so configured model/eval `block_size` is the only block authority.
+Remaining bullets below are still open.
 - `sweep_plan.py` validates itself against hardcoded constants and configures
   nothing — make `m_regime_sweep` consume the plan, or mark it declaration-
   only explicitly.
