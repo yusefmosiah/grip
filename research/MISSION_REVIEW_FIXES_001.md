@@ -280,6 +280,9 @@ redundant flat/nested duplicate keys in `_artifact_payload`.
 derivation (~40 lines) — extract a shared helper.
 
 ### P3.3 Kill dead code / wire promised code
+**Status.** PARTIAL in `41cf47d`: baseline naming now has one source of truth
+via `headroom_baselines.py`, shared by noise-floor artifacts, calibration, and
+headroom run generation. Remaining bullets below are still open.
 - `block_boundaries`: produced and collated, consumed by nothing; either the
   model consumes it (fixing the data/model block-size mismatch —
   `streams.py:183` emits T//16 boundaries, model hardcodes 32) or delete it.
