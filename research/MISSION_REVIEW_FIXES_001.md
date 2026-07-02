@@ -80,6 +80,12 @@ optimizer step may ever be labeled `preregistered`. Add a CPU test asserting
 loss decreases over N steps (see P2.4).
 
 ### P0.5 Make the sparse model an actual selection mechanism
+**Status.** DONE in `a4cadd7` (learnable selector scores now weight selected
+context on the CE loss path; block summaries use compact full-block +
+current-prefix tensors instead of the old per-token/per-block materialization;
+`grip-read-A` and `grip-select-B` are runnable headroom variants with explicit
+Grip state, where A reads Grip state without Grip selection and B adds Grip
+state to selection scoring).
 **Problem.** `ContentSparseTransformer` is not block-sparse attention:
 - Selection happens once, after the full stack (`sparse.py:128-133`), via a
   parameter-free dot product (`_block_importance`, `sparse.py:112-119`);
