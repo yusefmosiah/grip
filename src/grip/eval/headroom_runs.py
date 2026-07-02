@@ -6,11 +6,13 @@ from typing import Mapping
 
 import torch
 from grip.models import ContentSparseTransformer, DenseTransformer
+from grip.models.sparse_components import SparseMetadata
 
 from .compute import compute_budget, compute_payload
 from .headroom_baselines import baseline_specs
 from .headroom_training import BatchTensors, TrainingLoopConfig, TrainingTokenBatch, next_token_loss, train_model
 from .headroom_types import BaselineSpec, HeadroomConfigError, MRegimeConfig, ResolvedJson
+from .metrics import accuracy, brier_score, ece, mutual_info_discrete, nll
 from .m_regime_validity import run_tier, run_validity
 from .selection_diagnostics import write_selection_diagnostics
 
@@ -55,6 +57,7 @@ def _write_baseline(
             real_mask=eval_real_mask,
             vocab_size=config.vocab_size,
         )
+        metric_payload = _metric_payload(out, eval_batch, eval_real_mask, loss)
     compute = compute_budget(model, eval_tokens, read_budget=spec.read_budget)
     if spec.attention_mode is not None and spec.read_budget is not None:
         write_selection_diagnostics(
@@ -86,11 +89,52 @@ def _write_baseline(
         + "\n",
         encoding="utf-8",
     )
+    (run_dir / "metrics.json").write_text(
+        json.dumps(metric_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     (run_dir / "train.jsonl").write_text(
         "\n".join(json.dumps(record, sort_keys=True) for record in train_records) + "\n",
         encoding="utf-8",
     )
     return run_dir
+
+
+def _metric_payload(
+    model_output: Mapping[str, torch.Tensor | SparseMetadata | None],
+    eval_batch: BatchTensors,
+    real_mask: torch.Tensor,
+    loss: torch.Tensor,
+) -> Mapping[str, float]:
+    posterior = _tensor_field(model_output, "posterior")
+    last_real = real_mask.to(dtype=torch.long).sum(dim=1).clamp_min(1) - 1
+    batch_idx = torch.arange(posterior.shape[0], device=posterior.device)
+    final_probs = posterior[batch_idx, last_real].clamp_min(1e-8)
+    final_probs = final_probs / final_probs.sum(dim=1, keepdim=True)
+    answer = eval_batch["answer"].to(device=posterior.device, dtype=torch.long)
+    source_idx = eval_batch["source_idx"].to(device=posterior.device, dtype=torch.long)
+    expanded_answers = answer.reshape(-1, 1).expand_as(source_idx)
+    real_source_idx = source_idx[real_mask]
+    real_answers = expanded_answers[real_mask]
+    return {
+        "loss": float(loss.item()),
+        "posterior_accuracy": accuracy(final_probs, answer),
+        "posterior_brier": brier_score(final_probs, answer),
+        "posterior_ece": ece(final_probs, answer),
+        "posterior_nll": nll(final_probs.log(), answer),
+        "source_answer_mi": mutual_info_discrete(real_source_idx, real_answers),
+        "tokens": float(eval_batch["tokens"].numel()),
+    }
+
+
+def _tensor_field(
+    payload: Mapping[str, torch.Tensor | SparseMetadata | None],
+    field: str,
+) -> torch.Tensor:
+    value = payload[field]
+    if not isinstance(value, torch.Tensor):
+        raise HeadroomConfigError(field, "must be a tensor")
+    return value
 
 
 def _build_seeded_model(

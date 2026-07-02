@@ -119,6 +119,45 @@ def test_compare_blocks_preregistered_noise_floor_without_run_metric_coverage(tm
     assert report.reason == "noise_floor_missing_metric"
 
 
+def test_compare_ignores_report_only_posterior_metrics_for_noise_floor_coverage(tmp_path: Path) -> None:
+    # Given: loss-scored runs with additional report-only posterior metrics.
+    run_a = _write_run(
+        tmp_path / "run-a",
+        {
+            "loss": 0.70,
+            "posterior_accuracy": 0.5,
+            "posterior_brier": 0.25,
+            "posterior_ece": 0.1,
+            "posterior_nll": 0.7,
+            "source_answer_mi": 0.0,
+        },
+    )
+    run_b = _write_run(
+        tmp_path / "run-b",
+        {
+            "loss": 0.74,
+            "posterior_accuracy": 0.6,
+            "posterior_brier": 0.2,
+            "posterior_ece": 0.2,
+            "posterior_nll": 0.6,
+            "source_answer_mi": 0.0,
+        },
+    )
+    noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
+    payload = json.loads(noise_floor_path.read_text(encoding="utf-8"))
+    payload["minimum_signal_threshold"] = {"loss": 0.02}
+    payload["metric_ceilings"] = {"loss": 0.02}
+    payload["metric_deltas"] = {"loss": [0.01, -0.02, 0.0, 0.015, -0.01, 0.005, 0.02, -0.015]}
+    noise_floor_path.write_text(json.dumps(attach_noise_floor_content_hash(payload)), encoding="utf-8")
+
+    # When: the comparison is explicitly marked preregistered.
+    report = compare([run_a, run_b], tmp_path / "comparison.json", noise_floor_path=noise_floor_path, preregistered=True)
+
+    # Then: report-only metrics do not require their own noise-floor thresholds.
+    assert report.interpretable is True
+    assert report.reason == "ok"
+
+
 def test_compare_blocks_mismatched_noise_floor_config(tmp_path: Path) -> None:
     # Given: two scored runs and a noise floor calibrated for a different sequence length.
     run_a = _write_run(tmp_path / "run-a", {"accuracy": 0.70})

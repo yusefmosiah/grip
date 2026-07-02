@@ -126,6 +126,18 @@ def test_m_regime_smoke_writes_baseline_artifacts_and_comparison(tmp_path: Path)
         assert resolved["unciteable"] is True
         assert (run_dir / "eval_tensors.json").exists()
         assert (run_dir / "metrics.json").exists()
+        metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
+        assert {
+            "loss",
+            "posterior_accuracy",
+            "posterior_brier",
+            "posterior_ece",
+            "posterior_nll",
+            "source_answer_mi",
+            "tokens",
+        } <= set(metrics)
+        assert 0.0 <= metrics["posterior_accuracy"] <= 1.0
+        assert metrics["posterior_nll"] >= 0.0
 
 
 def test_m_regime_smoke_blocks_without_noise_floor(tmp_path: Path) -> None:

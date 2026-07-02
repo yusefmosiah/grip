@@ -24,7 +24,14 @@ from .score_types import (
 )
 
 
-BOOKKEEPING_METRICS: Final = frozenset({"tokens"})
+BOOKKEEPING_METRICS: Final = frozenset({
+    "posterior_accuracy",
+    "posterior_brier",
+    "posterior_ece",
+    "posterior_nll",
+    "source_answer_mi",
+    "tokens",
+})
 DEFAULT_COMPUTE_TOLERANCE: Final = 0.05
 
 
