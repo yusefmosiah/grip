@@ -15,6 +15,8 @@ result may be cited as evidence until the P0 items are closed.
 ## P0 — Critical: gates currently produce untrustworthy decisions
 
 ### P0.1 Fix degenerate noise-floor calibration
+**Status.** DONE in `ff8fa86` (calibration pairs now use distinct seeds,
+thresholds derive from observed spread, all-zero spread fails loudly).
 **Problem.** `noise_floor_calibration.py:143-152` runs left/right calibration
 pairs with the *same config and same seed*. Runs are deterministic, so every
 delta is exactly 0.0 and the threshold always falls back to the
@@ -33,6 +35,8 @@ seed variance.
   real pair and assert the loud-failure path.
 
 ### P0.2 Bind noise-floor artifacts to decision-run configs
+**Status.** DONE in `ff8fa86` (scorer blocks mismatched floors and reports the
+mismatched config fields).
 **Problem.** `load_noise_floor` never verifies the floor's embedded
 calibration config matches the decision run (task, model dims, seq_len, batch
 sizes, train_steps). A floor calibrated on any config gates any comparison.
@@ -112,6 +116,7 @@ contract requires matched compute by construction.
 ## P1 — Methodology: preregistration integrity
 
 ### P1.1 SPEC-002 amendment (write BEFORE the next decision run)
+**Status.** DONE in `1a0ac56` (`SPEC-002-AMENDMENT-001.md`).
 One dated amendment doc (`SPEC-002-AMENDMENT-001.md`) fixing, with numbers:
 - The noise-floor procedure (per P0.1) and its failure mode.
 - The aggregate keep criterion (currently 0.75 keep-rate, defined nine
@@ -158,6 +163,9 @@ Write its G-doc. This is the first M-regime evidence that counts.
 ## P2 — Statistical and correctness bugs
 
 ### P2.1 Seed hygiene
+**Status.** PARTIAL in `ff8fa86`: `make_batch`, M-regime training batches, and
+noise-floor/sweep calibration seeds are partitioned. `run_probe_000.py` seed
+bases and `reversal.py` label derivation remain open.
 - `make_batch` (`data/collate.py:44`): `seed*1000 + i` collides (seed=1,i=0 ==
   seed=0,i=1000) and train/eval disjointness rests on unvalidated invariants.
   Replace with a non-colliding scheme (e.g. hash/`SeedSequence`-spawned
