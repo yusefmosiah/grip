@@ -65,6 +65,8 @@ scientifically empty, yet emitted keep/pivot decisions.
   (`aggregate_headroom`, `aggregate_summary` skip them with a logged reason).
 
 ### P0.4 Replace the `train/run.py` stub or fence it
+**Status.** DONE in `9e21c55` (stub artifacts are only allowed under explicit
+`mode: "stub-dry-run"`; `smoke` and `preregistered` are rejected before writes).
 **Problem.** `train()` (`train/run.py:70-105`) writes `config.resolved.json`,
 a hardcoded `dry_run` record with `loss: 0.0`, and a stub `eval_tensors.json`.
 No model, no optimizer, no checkpoint. It accepts `mode: "preregistered"` and
