@@ -54,11 +54,13 @@ class ComparisonReport:
     reason: str
     noise_floor: NoiseFloorArtifact | None
     config_mismatches: tuple[str, ...] = ()
+    validity_failures: tuple[str, ...] = ()
 
     def to_json_text(self) -> str:
         payload = {
             "interpretable": self.interpretable,
             "config_mismatches": list(self.config_mismatches),
+            "validity_failures": list(self.validity_failures),
             "noise_floor": _noise_floor_payload(self.noise_floor),
             "reason": self.reason,
             "runs": [

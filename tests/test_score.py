@@ -7,20 +7,26 @@ from typing import Mapping
 from grip.eval.score import compare, load_noise_floor, score_run
 
 
-def _write_run(run_dir: Path, metrics: Mapping[str, float]) -> Path:
+def _write_run(run_dir: Path, metrics: Mapping[str, float], *, valid: bool = True) -> Path:
     run_dir.mkdir()
     (run_dir / "metrics.json").write_text(json.dumps(dict(metrics)), encoding="utf-8")
     (run_dir / "config.resolved.json").write_text(
-        json.dumps(_run_config(run_dir.name), indent=2, sort_keys=True) + "\n",
+        json.dumps(_run_config(run_dir.name, valid=valid), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     return run_dir
 
 
-def _run_config(name: str, *, seq_len: int = 8) -> dict:
+def _run_config(name: str, *, seq_len: int | None = None, valid: bool = True) -> dict:
+    resolved_seq_len = seq_len if seq_len is not None else (512 if valid else 8)
+    eval_batch_size = 8 if valid else 1
+    train_batch_size = 8 if valid else 1
+    train_steps = 1000 if valid else 0
+    tier = "valid" if valid else "smoke"
     return {
-        "data": {"seq_len": seq_len, "task": "bayesian", "vocab_size": 17},
-        "eval": {"batch_size": 1, "seed": 10_000, "seed_offset": 10_000},
+        "decision": {"seed_count": 8 if valid else 1},
+        "data": {"seq_len": resolved_seq_len, "task": "bayesian", "vocab_size": 17},
+        "eval": {"batch_size": eval_batch_size, "seed": 10_000, "seed_offset": 10_000},
         "model": {
             "attention_mode": None,
             "d_model": 16,
@@ -33,7 +39,10 @@ def _run_config(name: str, *, seq_len: int = 8) -> dict:
         "run": {"device": "cpu", "mode": "preregistered"},
         "seed": 0,
         "sparse": {"block_size": 2, "top_k_blocks": 3, "window": 2},
-        "train": {"batch_size": 1, "lr": 1e-3, "steps": 0},
+        "tier": tier,
+        "train": {"batch_size": train_batch_size, "lr": 1e-3, "steps": train_steps},
+        "unciteable": not valid,
+        "validity_failures": [] if valid else ["train.steps"],
     }
 
 
@@ -44,12 +53,13 @@ def _write_noise_floor(path: Path, *, seed_count: int = 8) -> Path:
         "kind": "M-noise-floor",
         "calibration": {
             "baseline_names": ["run-a", "run-b", "dense", "local", "content-sparse"],
-            "data": {"seq_len": 8, "task": "bayesian", "vocab_size": 17},
+            "decision": {"seed_count": 8},
+            "data": {"seq_len": 512, "task": "bayesian", "vocab_size": 17},
             "device": "cpu",
-            "eval": {"batch_size": 1, "seed_offset": 10_000},
+            "eval": {"batch_size": 8, "seed_offset": 10_000},
             "model": {"d_model": 16, "n_heads": 4, "n_hypotheses": 3, "n_layers": 1},
             "sparse": {"block_size": 2, "top_k_blocks": 3, "window": 2},
-            "train": {"batch_size": 1, "lr": 1e-3, "steps": 0},
+            "train": {"batch_size": 8, "lr": 1e-3, "steps": 1000},
         },
         "seed_count": seed_count,
         "seed_ids": list(range(seed_count)),
@@ -153,7 +163,7 @@ def test_compare_blocks_mismatched_noise_floor_config(tmp_path: Path) -> None:
     run_b = _write_run(tmp_path / "run-b", {"accuracy": 0.74})
     noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
     payload = json.loads(noise_floor_path.read_text(encoding="utf-8"))
-    payload["calibration"]["data"]["seq_len"] = 16
+    payload["calibration"]["data"]["seq_len"] = 1024
     noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
 
     # When: the comparison is explicitly marked preregistered.
@@ -165,6 +175,39 @@ def test_compare_blocks_mismatched_noise_floor_config(tmp_path: Path) -> None:
     assert report.config_mismatches == ("run-a.data.seq_len", "run-b.data.seq_len")
 
 
+def test_compare_blocks_smoke_tier_runs(tmp_path: Path) -> None:
+    # Given: scored runs marked as smoke-tier artifacts.
+    run_a = _write_run(tmp_path / "run-a", {"accuracy": 0.70}, valid=False)
+    run_b = _write_run(tmp_path / "run-b", {"accuracy": 0.74}, valid=False)
+    noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
+    payload = json.loads(noise_floor_path.read_text(encoding="utf-8"))
+    payload["calibration"]["data"]["seq_len"] = 8
+    payload["calibration"]["decision"]["seed_count"] = 1
+    payload["calibration"]["eval"]["batch_size"] = 1
+    payload["calibration"]["train"]["batch_size"] = 1
+    payload["calibration"]["train"]["steps"] = 0
+    noise_floor_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    # When: the comparison is explicitly marked preregistered.
+    report = compare([run_a, run_b], noise_floor_path=noise_floor_path, preregistered=True)
+
+    # Then: smoke-tier artifacts cannot authorize interpretation.
+    assert report.interpretable is False
+    assert report.reason == "below_minimum_validity"
+    assert report.validity_failures == (
+        "run-a.data.seq_len",
+        "run-a.decision.seed_count",
+        "run-a.eval.batch_size",
+        "run-a.train.batch_size",
+        "run-a.train.steps",
+        "run-b.data.seq_len",
+        "run-b.decision.seed_count",
+        "run-b.eval.batch_size",
+        "run-b.train.batch_size",
+        "run-b.train.steps",
+    )
+
+
 def test_compare_does_not_require_noise_floor_for_token_bookkeeping(tmp_path: Path) -> None:
     # Given: two loss-scored runs that also include token bookkeeping.
     run_a = _write_run(tmp_path / "run-a", {"loss": 0.70, "tokens": 8.0})
@@ -174,12 +217,13 @@ def test_compare_does_not_require_noise_floor_for_token_bookkeeping(tmp_path: Pa
         "kind": "M-noise-floor",
         "calibration": {
             "baseline_names": ["run-a", "run-b"],
-            "data": {"seq_len": 8, "task": "bayesian", "vocab_size": 17},
+            "decision": {"seed_count": 8},
+            "data": {"seq_len": 512, "task": "bayesian", "vocab_size": 17},
             "device": "cpu",
-            "eval": {"batch_size": 1, "seed_offset": 10_000},
+            "eval": {"batch_size": 8, "seed_offset": 10_000},
             "model": {"d_model": 16, "n_heads": 4, "n_hypotheses": 3, "n_layers": 1},
             "sparse": {"block_size": 2, "top_k_blocks": 3, "window": 2},
-            "train": {"batch_size": 1, "lr": 1e-3, "steps": 0},
+            "train": {"batch_size": 8, "lr": 1e-3, "steps": 1000},
         },
         "seed_count": 8,
         "seed_ids": list(range(8)),

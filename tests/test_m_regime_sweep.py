@@ -28,12 +28,15 @@ def test_m_regime_sweep_writes_summary_and_aggregate_reports(tmp_path: Path) -> 
     assert result.aggregate.report_path.exists()
     payload = json.loads(result.summary_path.read_text(encoding="utf-8"))
     assert payload["bayesian"]["config"] == {
-        "data": {
-            "seq_len": 8,
-            "task": "bayesian",
-            "vocab_size": 17,
-        },
-        "eval": {
+            "data": {
+                "seq_len": 8,
+                "task": "bayesian",
+                "vocab_size": 17,
+            },
+            "decision": {
+                "seed_count": 8,
+            },
+            "eval": {
             "batch_size": 1,
             "seed_offset": 10_000,
         },
@@ -56,7 +59,10 @@ def test_m_regime_sweep_writes_summary_and_aggregate_reports(tmp_path: Path) -> 
     }
     rows = payload["bayesian"]["rows"]
     assert len(rows) == 8
-    assert all(row["interpretable"] is True for row in rows)
+    assert all(row["interpretable"] is False for row in rows)
+    assert all(row["reason"] == "below_minimum_validity" for row in rows)
+    assert all(row["tier"] == "smoke" for row in rows)
+    assert all(row["unciteable"] is True for row in rows)
     diagnostics = rows[0]["selection_diagnostics"]
     assert diagnostics["local"]["attention_mode"] == "local"
     assert diagnostics["local"]["selection_consumed"] is False

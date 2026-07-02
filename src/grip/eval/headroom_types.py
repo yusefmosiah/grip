@@ -8,7 +8,15 @@ from .score_types import ComparisonReport
 
 
 HeadroomStatus: TypeAlias = Literal["keep", "pivot", "blocked"]
-ResolvedJson: TypeAlias = str | int | float | bool | None | Mapping[str, str | int | float | None]
+ResolvedJson: TypeAlias = (
+    str
+    | int
+    | float
+    | bool
+    | None
+    | list[str]
+    | Mapping[str, str | int | float | None]
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +50,7 @@ class MRegimeConfig:
     eval_batch_size: int = 1
     eval_seed_offset: int = 10_000
     lr: float = 1e-3
+    decision_seed_count: int = 1
 
 
 @dataclass(frozen=True, slots=True)

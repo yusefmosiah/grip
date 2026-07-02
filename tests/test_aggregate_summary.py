@@ -24,6 +24,14 @@ def _row(seed: int, status: str, delta: float, interpretable: bool = True) -> di
     }
 
 
+def _smoke_row(seed: int) -> dict[str, JsonValue]:
+    row = _row(seed, "blocked", 0.0, interpretable=False)
+    row["tier"] = "smoke"
+    row["unciteable"] = True
+    row["validity_failures"] = ["train.steps"]
+    return row
+
+
 def test_aggregate_summary_file_writes_task_reports_for_g013_shape(tmp_path: Path) -> None:
     # Given: a G013-style calibrated summary with Bayesian 0/8 keep and reversal 3/8 keep.
     summary_path = tmp_path / "summary.json"
@@ -83,6 +91,28 @@ def test_aggregate_summary_file_blocks_non_interpretable_rows(tmp_path: Path) ->
     assert result.tasks[0].decision.status == "blocked"
     assert result.tasks[0].decision.authorize_avsb is False
     assert result.tasks[0].decision.reason == "insufficient_interpretable_rate"
+
+
+def test_aggregate_summary_file_skips_smoke_rows(tmp_path: Path) -> None:
+    # Given: a summary whose rows are smoke-tier and unciteable.
+    summary_path = tmp_path / "summary.json"
+    summary_path.write_text(
+        json.dumps({"bayesian": {"rows": tuple(_smoke_row(seed) for seed in range(8))}}),
+        encoding="utf-8",
+    )
+
+    # When: aggregate reports are generated.
+    result = aggregate_summary_file(summary_path, tmp_path / "aggregate")
+
+    # Then: smoke rows are skipped and cannot satisfy the seed floor.
+    assert result.tasks[0].skipped_count == 8
+    assert result.tasks[0].decision.status == "blocked"
+    assert result.tasks[0].decision.reason == "insufficient_seed_count"
+    payload = json.loads(result.report_path.read_text(encoding="utf-8"))
+    task_payload = payload["tasks"]["bayesian"]
+    assert task_payload["seed_count"] == 0
+    assert task_payload["skipped_count"] == 8
+    assert task_payload["skipped_reasons"][0] == "seed-0:unciteable_smoke"
 
 
 def test_aggregate_summary_file_rejects_missing_rows(tmp_path: Path) -> None:

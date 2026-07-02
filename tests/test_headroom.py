@@ -25,6 +25,7 @@ def _write_noise_floor(
     payload = {
         "calibration": {
             "baseline_names": ["dense", "local", "content-sparse"],
+            "decision": {"seed_count": 1},
             "data": {"seq_len": 8, "task": "bayesian", "vocab_size": 17},
             "device": "cpu",
             "eval": {"batch_size": eval_batch_size, "seed_offset": 10_000},
@@ -57,6 +58,7 @@ def _write_accuracy_only_noise_floor(path: Path) -> Path:
     payload = {
         "calibration": {
             "baseline_names": ["dense", "local", "content-sparse"],
+            "decision": {"seed_count": 1},
             "data": {"seq_len": 8, "task": "bayesian", "vocab_size": 17},
             "device": "cpu",
             "eval": {"batch_size": 1, "seed_offset": 10_000},
@@ -86,7 +88,7 @@ def _write_accuracy_only_noise_floor(path: Path) -> Path:
 
 
 def test_m_regime_smoke_writes_baseline_artifacts_and_comparison(tmp_path: Path) -> None:
-    # Given: a valid preregistered noise-floor artifact and tiny smoke config.
+    # Given: a valid noise-floor artifact and tiny smoke config.
     noise_floor_path = _write_noise_floor(tmp_path / "noise-floor.json")
     config = MRegimeConfig(
         out_dir=tmp_path / "m-regime",
@@ -97,15 +99,19 @@ def test_m_regime_smoke_writes_baseline_artifacts_and_comparison(tmp_path: Path)
     # When: the M-regime smoke gate runs.
     result = run_m_regime_smoke(config)
 
-    # Then: dense/local/content-sparse artifacts and scorer comparison exist.
-    assert result.comparison.interpretable is True
-    assert result.status in {"keep", "pivot"}
-    assert result.authorize_avsb is (result.status == "keep")
+    # Then: dense/local/content-sparse artifacts exist but remain unciteable smoke.
+    assert result.comparison.interpretable is False
+    assert result.comparison.reason == "below_minimum_validity"
+    assert result.status == "blocked"
+    assert result.authorize_avsb is False
     assert {run.name for run in result.run_dirs} == {"dense", "local", "content-sparse"}
     comparison = json.loads((config.out_dir / "comparison.json").read_text(encoding="utf-8"))
-    assert comparison["interpretable"] is True
+    assert comparison["interpretable"] is False
+    assert comparison["reason"] == "below_minimum_validity"
     for run_dir in result.run_dirs:
-        assert (run_dir / "config.resolved.json").exists()
+        resolved = json.loads((run_dir / "config.resolved.json").read_text(encoding="utf-8"))
+        assert resolved["tier"] == "smoke"
+        assert resolved["unciteable"] is True
         assert (run_dir / "eval_tensors.json").exists()
         assert (run_dir / "metrics.json").exists()
 
@@ -141,7 +147,7 @@ def test_m_regime_smoke_blocks_when_noise_floor_omits_loss_metric(tmp_path: Path
 
     # Then: the gate blocks instead of crashing or authorizing A-vs-B.
     assert result.comparison.interpretable is False
-    assert result.comparison.reason == "noise_floor_missing_metric"
+    assert result.comparison.reason == "below_minimum_validity"
     assert result.status == "blocked"
     assert result.authorize_avsb is False
 
@@ -250,8 +256,9 @@ def test_m_regime_trained_run_records_training_budget(tmp_path: Path) -> None:
     # When: the M-regime gate runs with one training step.
     result = run_m_regime_smoke(config)
 
-    # Then: every baseline records matched training budget and remains scorer-owned.
-    assert result.comparison.interpretable is True
+    # Then: every baseline records matched training budget and remains scorer-owned but smoke-tier.
+    assert result.comparison.interpretable is False
+    assert result.comparison.reason == "below_minimum_validity"
     for run_dir in result.run_dirs:
         resolved = json.loads((run_dir / "config.resolved.json").read_text(encoding="utf-8"))
         train_log = (run_dir / "train.jsonl").read_text(encoding="utf-8").strip().splitlines()
@@ -260,6 +267,8 @@ def test_m_regime_trained_run_records_training_budget(tmp_path: Path) -> None:
         assert resolved["train"]["lr"] == 1e-3
         assert resolved["data"]["task"] == "bayesian"
         assert resolved["run"]["device"] == "cpu"
+        assert resolved["tier"] == "smoke"
+        assert resolved["unciteable"] is True
         record = json.loads(train_log[-1])
         assert record["step"] == 1
         assert record["seed"] == 0

@@ -11,6 +11,7 @@ from grip.models import ContentSparseTransformer, DenseTransformer
 
 from .headroom_training import BatchTensors, TrainingLoopConfig, TrainingTokenBatch, train_model
 from .headroom_types import BaselineSpec, HeadroomConfigError, MRegimeConfig, ResolvedJson
+from .m_regime_validity import run_tier, run_validity
 from .selection_diagnostics import write_selection_diagnostics
 
 
@@ -135,12 +136,15 @@ def _build_model(
 
 
 def _resolved_payload(config: MRegimeConfig, spec: BaselineSpec) -> Mapping[str, ResolvedJson]:
-    return {
+    payload = {
         "artifact_schema_version": 1,
         "data": {
             "seq_len": config.seq_len,
             "task": config.task,
             "vocab_size": config.vocab_size,
+        },
+        "decision": {
+            "seed_count": config.decision_seed_count,
         },
         "model": {
             "attention_mode": spec.attention_mode,
@@ -171,4 +175,12 @@ def _resolved_payload(config: MRegimeConfig, spec: BaselineSpec) -> Mapping[str,
             "lr": config.lr,
             "steps": config.train_steps,
         },
+    }
+    validity_failures = run_validity(payload)
+    tier = run_tier(payload)
+    return {
+        **payload,
+        "tier": tier,
+        "unciteable": tier != "valid",
+        "validity_failures": list(validity_failures),
     }

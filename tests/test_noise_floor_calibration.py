@@ -65,7 +65,7 @@ def test_calibrate_noise_floor_writes_scorer_loadable_loss_artifact(tmp_path: Pa
     }
     assert raw_artifact["zero_tolerance"] == 1e-6
 
-    # And: the generated artifact can authorize interpretation through compare().
+    # And: the generated artifact cannot authorize a below-minimum smoke run.
     gate = run_m_regime_smoke(
         MRegimeConfig(
             out_dir=tmp_path / "gate",
@@ -73,8 +73,8 @@ def test_calibrate_noise_floor_writes_scorer_loadable_loss_artifact(tmp_path: Pa
             preregistered=True,
         )
     )
-    assert gate.comparison.interpretable is True
-    assert gate.comparison.reason == "ok"
+    assert gate.comparison.interpretable is False
+    assert gate.comparison.reason == "below_minimum_validity"
 
 
 def test_calibrate_noise_floor_rejects_too_few_seeds(tmp_path: Path) -> None:

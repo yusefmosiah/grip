@@ -38,6 +38,8 @@ class TaskAggregateReport:
     task: str
     decision: AggregateDecision
     report_path: Path
+    skipped_count: int
+    skipped_reasons: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +52,18 @@ class AggregateSummaryResult:
 class _AggregateSummaryContext:
     out_dir: Path
     config: AggregateDecisionConfig
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedTaskRows:
+    decisions: tuple[SeedDecision, ...]
+    skipped_reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedRow:
+    decision: SeedDecision | None
+    skipped_reason: str | None
 
 
 def aggregate_summary_file(
@@ -65,8 +79,8 @@ def aggregate_summary_file(
     context = _AggregateSummaryContext(out_dir=out_dir, config=config)
     out_dir.mkdir(parents=True, exist_ok=True)
     tasks = tuple(
-        _write_task_aggregate(task, decisions, context)
-        for task, decisions in task_rows.items()
+        _write_task_aggregate(task, rows, context)
+        for task, rows in task_rows.items()
     )
     report_path = out_dir / "aggregate-summary.json"
     report_path.write_text(
@@ -76,12 +90,12 @@ def aggregate_summary_file(
     return AggregateSummaryResult(report_path=report_path, tasks=tasks)
 
 
-def _parse_summary(path: Path, raw: JsonValue) -> Mapping[str, tuple[SeedDecision, ...]]:
+def _parse_summary(path: Path, raw: JsonValue) -> Mapping[str, _ParsedTaskRows]:
     if not isinstance(raw, dict):
         raise AggregateSummaryError(path, "summary", "must be a JSON object")
     if not raw:
         raise AggregateSummaryError(path, "summary", "must contain at least one task")
-    parsed: dict[str, tuple[SeedDecision, ...]] = {}
+    parsed: dict[str, _ParsedTaskRows] = {}
     for task in sorted(raw):
         _parse_task_name(path, task)
         task_value = raw[task]
@@ -90,14 +104,23 @@ def _parse_summary(path: Path, raw: JsonValue) -> Mapping[str, tuple[SeedDecisio
         rows = task_value.get("rows")
         if not isinstance(rows, list):
             raise AggregateSummaryError(path, f"{task}.rows", "must be a list")
-        parsed[task] = tuple(
+        parsed_rows = tuple(
             _parse_row(path, f"{task}.rows[{index}]", row)
             for index, row in enumerate(rows)
+        )
+        parsed[task] = _ParsedTaskRows(
+            decisions=tuple(row.decision for row in parsed_rows if row.decision is not None),
+            skipped_reasons=tuple(
+                reason
+                for row in parsed_rows
+                if row.skipped_reason is not None
+                for reason in (row.skipped_reason,)
+            ),
         )
     return parsed
 
 
-def _parse_row(path: Path, field: str, raw: JsonValue) -> SeedDecision:
+def _parse_row(path: Path, field: str, raw: JsonValue) -> _ParsedRow:
     if not isinstance(raw, dict):
         raise AggregateSummaryError(path, field, "must be a JSON object")
     seed = _parse_seed(path, f"{field}.seed", raw.get("seed"))
@@ -115,13 +138,19 @@ def _parse_row(path: Path, field: str, raw: JsonValue) -> SeedDecision:
         f"{field}.content_minus_dense",
         raw.get("content_minus_dense"),
     )
-    return SeedDecision(
+    if raw.get("unciteable") is True or raw.get("tier") == "smoke":
+        return _ParsedRow(
+            decision=None,
+            skipped_reason=f"seed-{seed}:unciteable_smoke",
+        )
+    decision = SeedDecision(
         seed=seed,
         status=status,
         interpretable=interpretable,
         content_minus_dense=content_minus_dense,
         authorize_avsb=authorize_avsb,
     )
+    return _ParsedRow(decision=decision, skipped_reason=None)
 
 
 def _parse_task_name(path: Path, raw: str) -> str:
@@ -162,25 +191,32 @@ def _parse_float(path: Path, field: str, raw: JsonValue) -> float:
 
 def _write_task_aggregate(
     task: str,
-    decisions: tuple[SeedDecision, ...],
+    rows: _ParsedTaskRows,
     context: _AggregateSummaryContext,
 ) -> TaskAggregateReport:
-    decision = aggregate_headroom_decision(decisions, context.config)
+    decision = aggregate_headroom_decision(rows.decisions, context.config)
     report_path = write_aggregate_report(context.out_dir / f"{task}.aggregate.json", decision)
-    return TaskAggregateReport(task=task, decision=decision, report_path=report_path)
+    return TaskAggregateReport(
+        task=task,
+        decision=decision,
+        report_path=report_path,
+        skipped_count=len(rows.skipped_reasons),
+        skipped_reasons=rows.skipped_reasons,
+    )
 
 
 def _summary_payload(tasks: tuple[TaskAggregateReport, ...]) -> dict[str, JsonValue]:
     return {
         "authorize_avsb": any(task.decision.authorize_avsb for task in tasks),
         "tasks": {
-            task.task: _decision_payload(task.decision, task.report_path)
+            task.task: _decision_payload(task)
             for task in tasks
         },
     }
 
 
-def _decision_payload(decision: AggregateDecision, report_path: Path) -> dict[str, JsonValue]:
+def _decision_payload(task: TaskAggregateReport) -> dict[str, JsonValue]:
+    decision = task.decision
     return {
         "authorize_avsb": decision.authorize_avsb,
         "blocked_count": decision.blocked_count,
@@ -190,7 +226,9 @@ def _decision_payload(decision: AggregateDecision, report_path: Path) -> dict[st
         "keep_rate": decision.keep_rate,
         "pivot_count": decision.pivot_count,
         "reason": decision.reason,
-        "report_path": str(report_path),
+        "report_path": str(task.report_path),
         "seed_count": decision.seed_count,
+        "skipped_count": task.skipped_count,
+        "skipped_reasons": list(task.skipped_reasons),
         "status": decision.status,
     }

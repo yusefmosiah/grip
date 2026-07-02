@@ -12,6 +12,7 @@ from .headroom_types import (
     MRegimeConfig,
     MRegimeResult,
 )
+from .m_regime_validity import run_tier, run_validity
 from .score import compare
 from .score_types import ComparisonReport
 
@@ -50,6 +51,8 @@ def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
     )
     status = _headroom_status(comparison)
     report_path = config.out_dir / "m_regime_report.json"
+    tier = _m_regime_tier(config)
+    validity_failures = _m_regime_validity_failures(config)
     report_path.write_text(
         json.dumps(
             {
@@ -59,6 +62,9 @@ def run_m_regime_smoke(config: MRegimeConfig) -> MRegimeResult:
                 "interpretable": comparison.interpretable,
                 "run_dirs": [str(path) for path in run_dirs],
                 "status": status,
+                "tier": tier,
+                "unciteable": tier != "valid",
+                "validity_failures": list(validity_failures),
             },
             indent=2,
             sort_keys=True,
@@ -88,6 +94,26 @@ def _headroom_status(comparison: ComparisonReport) -> HeadroomStatus:
     if content_sparse_loss - dense_loss > threshold:
         return "keep"
     return "pivot"
+
+
+def _m_regime_tier(config: MRegimeConfig) -> str:
+    return run_tier(_m_regime_validity_payload(config))
+
+
+def _m_regime_validity_failures(config: MRegimeConfig) -> tuple[str, ...]:
+    return run_validity(_m_regime_validity_payload(config))
+
+
+def _m_regime_validity_payload(config: MRegimeConfig) -> dict:
+    return {
+        "data": {"seq_len": config.seq_len},
+        "decision": {"seed_count": config.decision_seed_count},
+        "eval": {"batch_size": config.eval_batch_size},
+        "train": {
+            "batch_size": config.train_batch_size,
+            "steps": config.train_steps,
+        },
+    }
 
 
 def _validate_config(config: MRegimeConfig) -> None:

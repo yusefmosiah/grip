@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Final, Mapping, Sequence
 
 from .noise_floor import is_number, load_noise_floor
+from .m_regime_validity import noise_floor_validity, run_validity
 from .score_types import (
     ComparisonReport,
     JsonValue,
@@ -84,8 +85,11 @@ def compare(
             noise_floor = load_noise_floor(noise_floor_path)
             missing_metrics = _missing_noise_floor_metrics(scores, noise_floor)
             config_mismatches = _noise_floor_config_mismatches(scores, noise_floor)
+            validity_failures = _run_validity_failures(scores, noise_floor)
             if config_mismatches:
                 reason = "noise_floor_config_mismatch"
+            elif validity_failures:
+                reason = "below_minimum_validity"
             elif missing_metrics:
                 reason = "noise_floor_missing_metric"
             else:
@@ -94,14 +98,17 @@ def compare(
         except NoiseFloorError:
             reason = "noise_floor_invalid"
             config_mismatches = ()
+            validity_failures = ()
     else:
         config_mismatches = ()
+        validity_failures = ()
     report = ComparisonReport(
         runs=scores,
         interpretable=interpretable,
         reason=reason,
         noise_floor=noise_floor,
         config_mismatches=config_mismatches,
+        validity_failures=validity_failures,
     )
     comparison_path = runs[0].parent / "comparison.json"
     comparison_path.write_text(report.to_json_text(), encoding="utf-8")
@@ -143,6 +150,24 @@ def _noise_floor_config_mismatches(
             continue
         mismatches.extend(_run_config_mismatches(score.run_dir.name, run_config, noise_floor.calibration))
     return tuple(sorted(set(mismatches)))
+
+
+def _run_validity_failures(
+    scores: Sequence[RunScore],
+    noise_floor: NoiseFloorArtifact,
+) -> tuple[str, ...]:
+    failures: list[str] = list(noise_floor_validity(len(noise_floor.calibration_pairs)))
+    for score in scores:
+        config_path = score.run_dir / "config.resolved.json"
+        try:
+            run_config = _load_run_config(config_path)
+        except ScoreArtifactError:
+            failures.append(f"{score.run_dir.name}.config.resolved.json")
+            continue
+        spec_failures = run_validity(run_config)
+        if spec_failures:
+            failures.extend(f"{score.run_dir.name}.{field}" for field in spec_failures)
+    return tuple(sorted(set(failures)))
 
 
 def _load_run_config(path: Path) -> Mapping[str, JsonValue]:

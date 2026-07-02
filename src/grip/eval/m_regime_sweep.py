@@ -101,6 +101,9 @@ def _run_seed(config: MRegimeSweepConfig, noise_floor_path: Path, seed: int) -> 
         "selection_diagnostics": _selection_diagnostics(result),
         "seed": seed,
         "status": result.status,
+        "tier": _report_field(result.report_path, "tier"),
+        "unciteable": _report_field(result.report_path, "unciteable"),
+        "validity_failures": _report_field(result.report_path, "validity_failures"),
     }
 
 
@@ -126,6 +129,7 @@ def _headroom_config(config: MRegimeSweepConfig, noise_floor_path: Path, seed: i
         eval_batch_size=config.eval_batch_size,
         eval_seed_offset=config.eval_seed_offset,
         lr=config.lr,
+        decision_seed_count=len(config.seed_ids),
     )
 
 
@@ -154,6 +158,13 @@ def _selection_diagnostics(result: MRegimeResult) -> dict[str, JsonValue]:
     return diagnostics
 
 
+def _report_field(path: Path, field: str) -> JsonValue:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        return None
+    return payload.get(field)
+
+
 def _summary_payload(
     config: MRegimeSweepConfig,
     noise_floor_path: Path,
@@ -174,6 +185,9 @@ def _provenance_payload(config: MRegimeSweepConfig) -> dict[str, JsonValue]:
             "seq_len": config.seq_len,
             "task": config.task,
             "vocab_size": config.vocab_size,
+        },
+        "decision": {
+            "seed_count": len(config.seed_ids),
         },
         "eval": {
             "batch_size": config.eval_batch_size,

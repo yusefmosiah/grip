@@ -17,6 +17,9 @@ def calibration_payload(config: NoiseFloorCalibrationConfig) -> dict[str, JsonVa
             "task": config.task,
             "vocab_size": config.vocab_size,
         },
+        "decision": {
+            "seed_count": len(config.decision_seed_ids),
+        },
         "device": config.device,
         "eval": {
             "batch_size": config.eval_batch_size,
