@@ -3,13 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 
+import pytest
 
-def test_omo_research_artifacts_are_gitignored():
-    # Given: agent/research scratch artifacts live under .omo/.
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        ".omo/scratch-check.tmp",
+        "runs/smoke/metrics.json",
+        "checkpoints/metadata.json",
+        "models/tiny.pt",
+    ),
+)
+def test_generated_artifacts_are_gitignored(relative_path: str) -> None:
     root = Path(__file__).resolve().parents[1]
-    scratch = root / ".omo" / "scratch-check.tmp"
+    scratch = root / relative_path
 
-    # When / Then: Git treats the scratch path as ignored behaviorally.
     result = subprocess.run(
         ["git", "check-ignore", str(scratch)],
         cwd=root,

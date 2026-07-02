@@ -39,6 +39,7 @@ logs/
 *.log
 
 # Data / model artifacts
+checkpoints/
 *.pt
 *.pth
 *.ckpt
